@@ -217,17 +217,17 @@ export function gameChart(host, d) {
 }
 
 /**
- * Cumulative units, signal by signal. steps: [{ all, totals, date }] in the order the signals fired.
- * The bold line is every signal; the thin one is game totals alone. A dashed rule marks where each slate begins.
+ * Cumulative units, signal by signal. steps: [{ all, date }] in the order the signals fired, with `totals` beside it when
+ * a second, thinner line is wanted. A dashed rule marks where each slate begins.
  */
 export function unitsChart(host, steps, { dayLabel = (d) => d } = {}) {
-  const W = Math.max(300, host.clientWidth), narrow = W < 620, H = narrow ? 220 : 260, m = { t: 14, r: narrow ? 120 : 132, b: 26, l: 34 };
-  const n = steps.length, pts = [{ i: 0, all: 0, totals: 0 }].concat(steps.map((s, i) => ({ i: i + 1, all: s.all, totals: s.totals })));
+  const W = Math.max(300, host.clientWidth), narrow = W < 620, H = narrow ? 220 : 260, two = steps.some((s) => s.totals != null), m = { t: 14, r: two ? (narrow ? 120 : 132) : 56, b: 26, l: 34 };
+  const n = steps.length, pts = [{ i: 0, all: 0, totals: 0 }].concat(steps.map((s, i) => ({ i: i + 1, all: s.all, totals: two ? s.totals : s.all })));
   const lo = Math.min(0, d3.min(pts, (p) => Math.min(p.all, p.totals))), hi = Math.max(0, d3.max(pts, (p) => Math.max(p.all, p.totals))), pad = Math.max(1, (hi - lo) * 0.12);
   const x = d3.scaleLinear([0, n], [m.l, W - m.r]), y = d3.scaleLinear([lo - pad, hi + pad], [H - m.b, m.t]);
   const end = pts[n];
   const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img')
-    .attr('aria-label', `Cumulative units over ${n} settled signals: ${signed(end.all)} on all of them, ${signed(end.totals)} on game totals alone.`);
+    .attr('aria-label', `Cumulative units over ${n} settled signals: ${signed(end.all)}${two ? ` on all of them, ${signed(end.totals)} on game totals alone` : ''}.`);
   const yt = y.ticks(5);
   svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y).attr('stroke', (v) => (v === 0 ? 'var(--rule-strong)' : 'var(--rule-soft)'));
   svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 7).attr('y', y).attr('dy', '0.32em').attr('text-anchor', 'end').text(tick);
@@ -241,10 +241,11 @@ export function unitsChart(host, steps, { dayLabel = (d) => d } = {}) {
     named = x(s.i);
   }
   const line = (key) => d3.line().curve(d3.curveStepAfter).x((p) => x(p.i)).y((p) => y(p[key]))(pts);
-  svg.append('path').attr('d', line('totals')).attr('fill', 'none').attr('stroke', 'var(--faint)').attr('stroke-width', 1.25);
+  if (two) svg.append('path').attr('d', line('totals')).attr('fill', 'none').attr('stroke', 'var(--faint)').attr('stroke-width', 1.25);
   svg.append('path').attr('d', line('all')).attr('fill', 'none').attr('stroke', 'var(--ink)').attr('stroke-width', 2.25).attr('stroke-linejoin', 'round');
-  const ends = [{ y: y(end.all), text: `${narrow ? 'All' : 'All signals'} ${signed(end.all)}`, fill: 'var(--ink)' }, { y: y(end.totals), text: `Game totals ${signed(end.totals)}`, fill: 'var(--faint)' }].sort((a, b) => a.y - b.y);
-  if (ends[1].y - ends[0].y < 16) ends[1].y = ends[0].y + 16;
+  const ends = (two ? [{ y: y(end.all), text: `${narrow ? 'All' : 'All signals'} ${signed(end.all)}`, fill: 'var(--ink)' }, { y: y(end.totals), text: `Game totals ${signed(end.totals)}`, fill: 'var(--faint)' }]
+    : [{ y: y(end.all), text: signed(end.all), fill: 'var(--ink)' }]).sort((a, b) => a.y - b.y);
+  if (two && ends[1].y - ends[0].y < 16) ends[1].y = ends[0].y + 16;
   svg.append('circle').attr('cx', x(n)).attr('cy', y(end.all)).attr('r', 4).attr('fill', 'var(--ink)').attr('stroke', 'var(--panel)').attr('stroke-width', 1.5);
   for (const e of ends) svg.append('text').attr('class', 'lbl').attr('x', W - m.r + 9).attr('y', e.y).attr('dy', '0.32em').style('fill', e.fill).text(e.text);
   host.replaceChildren(svg.node());

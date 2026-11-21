@@ -64,15 +64,21 @@ The recorder stores the yardstick with each day and re-estimates it from complet
 
 Lopsided spots (a 20-point pregame spread, a 15-point lead) are left out of the signal, the yardstick and the daily summary. Across 971 games with a 20-point spread in three seasons the fair number ran about a point high (final 1.35 under fair at halftime, standard error 0.34), against 0.1 in other games. The same rule is still run on those spots as a tenth row of the ladder (`lopsided`) and shown on the game page beside the signals, so the exclusion can be judged on results. On the trend charts those stretches are filled grey.
 
-The average decides whether there is a signal and on which side; the chance is worked out on the reading's own gap, so the line and price logged are ones that still carry the edge when the signal fires. `RULES.ruleSince` in `js/model.js` is the slate the current rule took effect on: the Record page shows signals scored live from that date apart from earlier slates scored again after the fact, and splits both by market, because team-total prices are estimates.
+The average decides whether there is a signal and on which side; the chance is worked out on the reading's own gap, so the line and price logged are ones that still carry the edge when the signal fires. An average exists only when the window holds three readings reaching back two and a half minutes, and the recorder and the browser keep every poll as a reading, changed or not, so halftime is covered like any other stretch. Signals fire on the game total alone, between minute 4 and minute 34.
 
-Ideas under test (`IDEAS` in the recorder) are the signal with one thing changed: game totals only, team totals only, stopping at minute 34, firing again after the gap closes, and the original cold-stretch buy (the over when scoring is well behind pace), in ordinary and in lopsided games. They get their own table on the Record page and are never part of the record.
+The record does not change when the rule does. `RULE_STARTS` in the recorder (and `RULE_HISTORY` in `js/model.js`, shown on the About page) lists every version of the rule with the first slate it was scored live on. A slate scored live keeps the signals logged that day: the recorder settles and annotates them and never judges them again. Slates from before `RULES.liveSince` are judged under the current rule after the fact and shown apart. On a past slate the board and game pages draw the ledger's signals, so every visitor sees the same list.
+
+Each logged signal also carries `later`: the line, price and whether the edge was still there at the first reading 30, 60 and 120 seconds on. The Record page uses it to show what someone a little late would have got.
+
+Ideas under test (`IDEAS` in the recorder) are the signal with one thing changed: team totals (dropped on November 22), carrying on to minute 38 (the rule until then), firing again after the gap closes, and the original cold-stretch buy (the over when scoring is well behind pace), in ordinary and in lopsided games. They get their own table on the Record page and are never part of the record.
 
 While a signal is open the site says whether it can still be bet: `signalNow` in `js/model.js` puts the signal's side through the same price test on the line showing now ("still on", or "edge gone" once the line or the game has moved; a game total showing no price counts as off the board). It reads "New" for three minutes after it fires, and the browser tab carries the number of open signals.
 
 A reading taken at the end of regulation is dropped by the app: if the game is tied it already carries the overtime line.
 
-Game totals are settled at DraftKings' live price. Team totals are implied from the live total and spread, (total ± spread) / 2, and priced at an estimated -115, because the feed carries no posted team-total market.
+Game totals are settled at DraftKings' live price. Team totals were implied from the live total and spread, (total ± spread) / 2, and priced at an estimated -115, because the feed carries no posted team-total market. They were dropped from the signal on November 22; the ones logged before then stay in the ledger and are counted apart.
+
+`recorder/watchdog.py`, run every ten minutes by the `watchdog` workflow, checks that the recorder has saved in the last fifteen minutes whenever a game is on or about to start, and starts it again when it has not.
 
 Readings where the game clock runs faster than the wall clock, or backwards, are dropped. ESPN's clock does that occasionally.
 
