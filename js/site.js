@@ -30,6 +30,13 @@ export const SITE = {
   // site carries no paid links. Take flat per-signup terms only; the disclosure on the About page says so.
   book: { name: '', url: '' },
 
+  // Coinbase prices beside the game total, read from Kalshi's public market data (Coinbase's prediction markets route to
+  // Kalshi). Off: nothing is fetched or drawn. A visitor can turn it on for their own browser with ?coinbase=1 and off
+  // with ?coinbase=0, so it can be tried on the live address before anyone else sees it. `fee` is the per-contract
+  // estimate added for Coinbase on top of Kalshi's published fee, in dollars. `dev` and `margin` are the entry rule
+  // for alerts: the three-minute average that far out, and a contract that beats its price plus fees by that much.
+  coinbase: { on: false, fee: 0.02, dev: 2, margin: 0.05 },
+
   // A link for readers who want to chip in (a payment page under the site's name, never a personal one).
   // Empty url: no link is drawn.
   support: { label: 'Support the site', url: '' },
@@ -43,6 +50,17 @@ export function dataBase(loc = globalThis.location, site = SITE) {
   if (site.data) return slash(site.data);
   const m = /^(.+)\.github\.io$/.exec(loc.hostname || ''), repo = (loc.pathname || '').split('/')[1];
   return m && repo ? `https://raw.githubusercontent.com/${m[1]}/${repo}/data/` : 'data/';
+}
+
+/** Whether this browser shows Coinbase prices: ?coinbase=1 or 0 sets it and is remembered; otherwise the setting. */
+export function coinbaseOn(loc = globalThis.location, site = SITE, store = globalThis.localStorage) {
+  const q = new URLSearchParams((loc && loc.search) || '').get('coinbase');
+  try {
+    if (q === '1' || q === '0') store.setItem('csl.coinbase', q);
+    const saved = store.getItem('csl.coinbase');
+    if (saved === '1' || saved === '0') return saved === '1';
+  } catch { /* no storage: the query string alone decides */ if (q === '1' || q === '0') return q === '1'; }
+  return !!(site.coinbase && site.coinbase.on);
 }
 
 /** Only https links leave the site, and only a real-looking address is offered for mail. */

@@ -2,11 +2,12 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, clockLabel, isClockGlitch, gapStats, signalNow } from './model.js?v=20';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=20';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=20';
-import { SITE, dataBase, safeLink, safeMail } from './site.js?v=20';
-import { boardWords, signalWords, agoWords } from './words.js?v=20';
+import { createModel, RULES, clockLabel, isClockGlitch, gapStats, signalNow } from './model.js?v=21';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=21';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=21';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=21';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=21';
+import { boardWords, signalWords, agoWords } from './words.js?v=21';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -34,6 +35,38 @@ const S = {
   led: { result: 'all', market: 'all' }, // the ledger's filters
 };
 const isToday = () => S.date === today();
+
+/* ---------- Coinbase prices (off unless switched on; see js/site.js) ---------- */
+const CB = {
+  on: coinbaseOn(), cfg: SITE.coinbase || {}, ladders: new Map(), titles: null, titlesAt: 0, at: 0, error: null,
+  alerts: (() => { try { return localStorage.getItem('csl.alerts') === '1'; } catch { return false; } })(),
+  fired: new Set((() => { try { return JSON.parse(sessionStorage.getItem('csl.fired') || '[]'); } catch { return []; } })()),
+};
+async function loadCoinbase() {
+  if (!CB.on || !isToday() || ![...S.games.values()].some((g) => g.state === 'in')) return;
+  try {
+    if (!CB.titles || Date.now() - CB.titlesAt > 30 * 60000) { CB.titles = await fetchTitles(getJSON); CB.titlesAt = Date.now(); }
+    CB.ladders = await fetchTotals(getJSON, Date.now(), CB.titles);
+    CB.at = Date.now(); CB.error = null;
+  } catch (err) { CB.error = err.message || 'error'; }
+}
+/** A live game's Coinbase ladder priced against the model now: the strike nearest the sportsbook, the best on each side, and an entry if the rule holds. */
+function cbQuote(g, st) {
+  if (!CB.on || !CB.at || g.state !== 'in' || !st || !st.fresh || !S.model) return null;
+  const key = `${g.id}:cb`;
+  if (S.memo.has(key)) return S.memo.get(key);
+  const ladder = matchGame(CB.ladders, S.date, { away: g.away.names || [g.away.name], home: g.home.names || [g.home.name] });
+  let out = null;
+  const m = st.markets.total;
+  if (ladder && m && m.fair != null) {
+    const overAt = (line) => 1 - S.model.cdf((line - m.fair) / m.sd);
+    const priced = priceLadder(ladder, overAt, CB.cfg.fee);
+    out = { ladder, priced, near: m.line == null ? null : nearest(priced, m.line), Over: bestOn(priced, 'Over'), Under: bestOn(priced, 'Under'),
+      entry: entryOf(m, st.eligible, priced, { dev: CB.cfg.dev, margin: CB.cfg.margin }) };
+  }
+  S.memo.set(key, out);
+  return out;
+}
 
 /* ---------- storage: this browser's own readings survive a reload ---------- */
 const store = {
@@ -401,6 +434,8 @@ function signalRow(g, s, withGame) {
   who.append(h('span', '', `${name}, ${s.side.toLowerCase()} ${f1(s.line)}`),
     h('span', 'feed-sub', `${withGame ? `${g.away.name} at ${g.home.name}, ` : ''}${clockLabel(s.minute)}${withGame ? '' : `, score ${s.score}`}${ago ? `, ${ago}` : ''}`));
   if (live) { const w = signalWords(signalNow(s, nowRow(g)), { lastMinute: RULES.lastMinute, lead: RULES.blowoutLead }); who.append(h('span', `feed-now${w.on ? ' is-on' : ''}`, w.text)); }
+  const cb = live && s.market === 'total' ? cbQuote(g, standing(g)) : null;
+  if (cb && cb[s.side]) who.append(h('span', `feed-now cb-now${cb[s.side].edge >= (CB.cfg.margin || 0.05) ? ' is-on' : ''}`, quoteWords(s.side, cb[s.side])));
   const res = !open ? s.result : live && age < NEW_SEC ? 'New' : 'Open';
   b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, res), who, h('span', 'what', s.final == null ? `fair ${f1(s.fair)}` : `final ${s.final}`));
   b.addEventListener('click', () => go(gameHash(g.id, s.market)));
@@ -525,6 +560,7 @@ function renderGame() {
   }
   $('#game-feed').hidden = !lead.length;
   renderBookLink(g, st);
+  renderCoinbase(g, st);
 
   const m = st ? st.markets[k] : null;
   const rows = tracked(g), lastRec = rows.length ? rows[rows.length - 1].markets[k] : null;
@@ -754,6 +790,67 @@ function renderBookLink(g, st) {
   bookLink(el, '', `Open this game at ${BOOK.name}`);
 }
 
+/** The game's Coinbase ladder: five strikes around the fair number, each side's price against the model's chance. */
+function renderCoinbase(g, st) {
+  const block = $('#cb-block');
+  if (!CB.on || !g || g.state !== 'in') { block.hidden = true; return; }
+  block.hidden = false;
+  const q = cbQuote(g, st), note = $('#cb-note'), body = $('#cb-rows');
+  $('#cb-alerts').textContent = CB.alerts ? 'Alerts on in this browser' : 'Alert me in this browser';
+  $('#cb-alerts').setAttribute('aria-pressed', String(CB.alerts));
+  if (CB.error) { note.textContent = `Could not read Coinbase prices (${CB.error}).`; body.replaceChildren(); return; }
+  if (!CB.at) { note.textContent = 'Loading Coinbase prices.'; body.replaceChildren(); return; }
+  if (!q) { note.textContent = st && st.fresh ? 'No Coinbase total found for this game.' : 'Coinbase prices show while the sportsbook line is fresh.'; body.replaceChildren(); return; }
+  const fair = st.markets.total.fair;
+  const rows = q.priced.slice().sort((a, b) => Math.abs(a.line - fair) - Math.abs(b.line - fair)).slice(0, 5).sort((a, b) => a.line - b.line);
+  const cell = (side) => {
+    const td = h('td');
+    if (!side) { td.textContent = '–'; return td; }
+    td.append(h('span', '', fmtC.cents(side.price)), h('span', `cb-edge ${side.edge >= (CB.cfg.margin || 0.05) ? 'is-on' : side.edge < 0 ? 'quiet' : ''}`, ` ${fmtC.signedCents(side.edge)}`));
+    return td;
+  };
+  body.replaceChildren(...rows.map((r) => {
+    const tr = h('tr'); tr.append(h('th', '', r.line.toFixed(1)), cell(r.over), h('td', 'quiet', `${Math.round(r.pOver * 100)}%`), cell(r.under));
+    return tr;
+  }));
+  const e = q.entry, ago = Math.round((Date.now() - CB.at) / 1000);
+  note.textContent = e ? `Entry: ${quoteWords(e.side, e)}.` : `No entry on Coinbase right now. Prices ${ago}s old; fees estimated.`;
+  note.className = e ? `cb-note ${e.side === 'Over' ? 'is-over' : 'is-under'}` : 'cb-note';
+}
+
+/** Entries across the slate: one browser notification per game and side, while this page is open. */
+function cbAlert() {
+  if (!CB.on || !isToday()) return;
+  const live = [];
+  for (const g of S.games.values()) {
+    if (g.state !== 'in') continue;
+    const q = cbQuote(g, standing(g));
+    if (q && q.entry) live.push({ g, e: q.entry });
+  }
+  const line = $('#cb-line');
+  line.hidden = !live.length;
+  if (live.length) line.textContent = `Coinbase ${live.length === 1 ? 'entry' : 'entries'} now: ${live.map(({ g, e }) => `${g.away.name} at ${g.home.name}, ${e.side.toLowerCase()} ${e.line.toFixed(1)} at ${fmtC.cents(e.price)}`).join('; ')}.`;
+  for (const { g, e } of live) {
+    const key = `${S.date}:${g.id}:${e.side}`;
+    if (CB.fired.has(key)) continue;
+    CB.fired.add(key);
+    try { sessionStorage.setItem('csl.fired', JSON.stringify([...CB.fired])); } catch { /* fires again after a reload */ }
+    if (CB.alerts && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const n = new Notification(`${g.away.name} at ${g.home.name}: ${e.side.toLowerCase()} ${e.line.toFixed(1)}`, { body: `${quoteWords(e.side, e)}. ${clockLabel(g.minute)}, ${g.away.pts}-${g.home.pts}.`, tag: key });
+      n.onclick = () => { window.focus(); go(gameHash(g.id, 'total')); };
+    }
+  }
+}
+async function toggleAlerts() {
+  if (!CB.alerts && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+    const p = await Notification.requestPermission().catch(() => 'denied');
+    if (p !== 'granted') { $('#cb-note').textContent = 'This browser did not allow notifications, so alerts stay off.'; return; }
+  }
+  CB.alerts = !CB.alerts;
+  try { localStorage.setItem('csl.alerts', CB.alerts ? '1' : '0'); } catch { /* not remembered */ }
+  renderGame();
+}
+
 function setupSite() {
   document.title = SITE.name;
   $('#wordmark').textContent = SITE.name;
@@ -871,7 +968,7 @@ function renderTitle() {
   const title = open ? `(${open}) ${SITE.name}` : SITE.name;
   if (document.title !== title) document.title = title;
 }
-function render() { S.memo.clear(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); renderTitle(); }
+function render() { S.memo.clear(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); }
 
 async function refresh(force) {
   if (S.busy && !force) return;
@@ -882,6 +979,7 @@ async function refresh(force) {
     try {
       await loadBoard();
       if (isToday()) await inBatches([...S.games.values()].filter((g) => g.state === 'in'), 6, loadOdds);
+      await loadCoinbase();
     } catch (err) { failed = err; }
     if (force || S.polls % RECORDED_EVERY === 0) await loadRecorded();
     if (failed) throw failed;
@@ -902,6 +1000,7 @@ $('#next-day').addEventListener('click', () => go(boardHash(shiftDay(S.date, 1))
 $('#today').addEventListener('click', () => go(boardHash(today())));
 $('#only').addEventListener('click', () => { S.only = !S.only; renderBoard(); });
 for (const b of document.querySelectorAll('#mode button')) b.addEventListener('click', () => { S.mode = b.dataset.mode; try { localStorage.setItem('csl.mode', S.mode); } catch { /* the choice just will not persist */ } S.memo.clear(); renderBoard(); });
+$('#cb-alerts').addEventListener('click', toggleAlerts);
 window.addEventListener('hashchange', applyRoute);
 let resizeTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (S.view === 'game') renderGame(); if (S.view === 'board') renderBoard(); if (S.view === 'record') renderRecord(); }, 120); });
@@ -925,7 +1024,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=20')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=21')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

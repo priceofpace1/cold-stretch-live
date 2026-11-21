@@ -1,7 +1,7 @@
 // ESPN feeds. Unofficial endpoints: free, CORS-open, and liable to change, so every parser tolerates missing fields.
 // DraftKings' numbers come through ESPN's odds feed: provider 100 is the pregame/closing line, 200 is the live line.
 
-import { elapsed } from './model.js?v=20';
+import { elapsed } from './model.js?v=21';
 
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball';
 const CORE = 'https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball';
@@ -41,6 +41,8 @@ function team(c) {
     abbr: t.abbreviation || (t.shortDisplayName || '').slice(0, 4).toUpperCase(),
     rank: rank && rank <= 25 ? rank : null,
     pts: Math.round(num(c.score) || 0),
+    // Every name the scoreboard gives, for matching the game on other markets (Coinbase's ladders).
+    names: [t.shortDisplayName, t.location, t.displayName, t.abbreviation].filter(Boolean),
   };
 }
 

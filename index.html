@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=20">
+<link rel="stylesheet" href="css/app.css?v=21">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -84,6 +84,7 @@
       </dl>
     </div>
     <p class="book-link" id="book-line" hidden></p>
+    <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
 
     <div class="block" id="feed-block" hidden>
       <h2 id="feed-h">Signals on this slate</h2>
@@ -161,6 +162,15 @@
       </div>
       <p class="read" id="read"></p>
       <p class="book-link" id="book-link" hidden></p>
+      <div class="panel cb" id="cb-block" hidden>
+        <div class="cb-head"><h3>Game total on Coinbase</h3><button type="button" class="key" id="cb-alerts" aria-pressed="false">Alert me in this browser</button></div>
+        <table class="cb-table">
+          <thead><tr><th>Line</th><th>Over</th><th>Model, over</th><th>Under</th></tr></thead>
+          <tbody id="cb-rows"></tbody>
+        </table>
+        <p class="cb-note" id="cb-note"></p>
+        <p class="cb-fine">Price to buy each side, and what the model gives it after fees (Kalshi's published fee plus an estimate for Coinbase). Coinbase's prediction markets trade Kalshi's contracts at Kalshi's prices; these are read from Kalshi's public data. Overtime counts.</p>
+      </div>
       <dl class="facts">
         <div class="book"><dt id="f-book-l">Sportsbook live</dt><dd id="f-book">–</dd></div>
         <div class="fair"><dt id="f-fair-l">Fair</dt><dd id="f-fair">–</dd></div>
@@ -353,7 +363,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=20"></script>
+<script type="module" src="js/app.js?v=21"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

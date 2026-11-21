@@ -76,6 +76,16 @@ Game totals are settled at DraftKings' live price. Team totals are implied from 
 
 Readings where the game clock runs faster than the wall clock, or backwards, are dropped. ESPN's clock does that occasionally.
 
+## Coinbase prices (switched off)
+
+Coinbase's prediction markets trade Kalshi's contracts at Kalshi's prices, with Coinbase's own fee on top. With `coinbase.on` in `js/site.js`, or `?coinbase=1` in one browser, the page reads Kalshi's public market data (no login) for the men's college basketball total-points ladders (`KXNCAAMBTOTAL`, overtime counts) and, for each live game it can match by team names:
+
+- puts the price beside an open game-total signal: the contract on that side with the biggest edge, `chance − price − fees`;
+- shows five strikes around the fair number on the game page, the price to buy each side and the model's chance;
+- calls it an **entry** when the site's own test holds on the three-minute average (2 deviations, inside the window, not lopsided) and a contract on that side beats its price plus fees by five cents. Entries are listed on the board, and the game page can raise a browser notification for each, once, while the page is open.
+
+Fees are Kalshi's published taker fee (7% of p × (1 − p), rounded up to the cent) plus an estimate for Coinbase's, which it does not publish (`coinbase.fee`). Team totals have no matching Kalshi ladder, so they show no Coinbase price. The site never signs in anywhere and places nothing.
+
 ## Design
 
 Two colours carry meaning and nothing else does. Orange is the sportsbook's number, blue is the fair number.
