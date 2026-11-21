@@ -107,6 +107,7 @@ h2 { font: 600 23px/1.2 var(--serif); letter-spacing: -0.005em; }
 /* small multiples: one panel per game, the same scale in each */
 .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 16px; }
 .wall.is-three { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.wall.is-one { grid-template-columns: minmax(0, 1fr); }
 .tp { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px 16px 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; text-align: left; text-decoration: none; }
 .tp:hover, .tp.is-cursor { border-color: var(--rule-strong); }
 .tp.is-cursor, .tp[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
@@ -379,6 +380,9 @@ td.lost { color: var(--sub); }
   .sums { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
   .sums > div { padding: 11px 0; }
   .sums dd { font-size: 24px; }
+  .first-wraps.is-late td:first-child, .first-wraps.is-late th:first-child { min-width: 6.5em; }
+  .first-wraps.is-late th, .first-wraps.is-late td { padding-left: 6px; padding-right: 6px; }
+  .first-wraps.is-late td:first-child, .first-wraps.is-late th:first-child { padding-left: 14px; }
   .first-wraps.is-days td:first-child, .first-wraps.is-days th:first-child { min-width: 0; white-space: nowrap; }
   .first-wraps.is-days :is(th, td):nth-child(2) { display: none; }
   .seg button { padding: 0 12px; }
@@ -402,7 +406,7 @@ td.lost { color: var(--sub); }
 .cb { padding: 14px 16px; margin: 14px 0; }
 .cb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cb-head h3 { margin: 0; font: 600 16px/1.3 var(--sans); }
-.cb-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+.cb-table { width: 100%; min-width: 0; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
 .cb-table th, .cb-table td { text-align: right; padding: 6px 4px; border-top: 1px solid var(--rule-soft); }
 .cb-table th:first-child { text-align: left; }
 .cb-table thead th { color: var(--sub); font-weight: 500; border-top: 0; }

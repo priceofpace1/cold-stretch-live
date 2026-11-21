@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createModel, elapsed, clockLabel, isClockGlitch, gapStats, breakEven, signalNow, RULES } from '../js/model.js';
+import { createModel, elapsed, clockLabel, isClockGlitch, gapStats, breakEven, signalNow, lastedSec, RULES, RULE_HISTORY } from '../js/model.js';
 
 const root = new URL('..', import.meta.url);
 const model = createModel(JSON.parse(readFileSync(new URL('model.json', root))));
@@ -130,6 +130,44 @@ test('the quote on screen must still carry the edge', () => {
   const row = model.track([150, 0], steady([5, 5, 5, 0.2, 5]))[4].markets.total;
   close(s[0].chance, row.over, 'and the chance logged is the chance on that quote');
   assert.ok(row.avgEdge < row.edge, 'the average and the gap on the quote are different numbers');
+});
+
+test('one fresh reading and a stale one are not an average', () => {
+  const early = steady([5, 5, 5, 5]), late = steady(new Array(12).fill(5)).slice(10); // 0 to 180 seconds, then nothing for ten minutes
+  const rows = model.track([150, 0], [...early, ...late]);
+  assert.notEqual(rows[3].markets.total.avgEdge, null, 'four readings across three minutes are an average');
+  assert.equal(rows[4].markets.total.avgEdge, null, 'one reading after a long hole is not, even with the last one carried forward');
+  assert.equal(rows[5].markets.total.avgEdge, null, 'nor are two');
+  assert.deepEqual(model.track([150, 0], steady(new Array(7).fill(5), { every: 30 })).map((r) => r.ready), [false, false, false, false, false, true, true], 'two and a half minutes of readings are needed');
+});
+
+test('signals fire on the game total alone', () => {
+  const rows = steady([5, 5, 5, 5, 5]);
+  assert.deepEqual([...new Set(model.signalsFor([150, 0], rows, null).map((s) => s.market))], ['total']);
+  assert.ok(model.signalsFor([150, 0], rows, null, { markets: ['away', 'home'] }).every((s) => s.market !== 'total'), 'team totals only when asked for');
+});
+
+test('signals stop at minute 34', () => {
+  assert.equal(RULES.lastMinute, 34);
+  assert.equal(totals(steady([5, 5, 5, 5, 5], { start: 34.2, every: 30 })).length, 0);
+  assert.equal(totals(steady([5, 5, 5, 5, 5], { start: 30 })).length, 1);
+});
+
+test('the rule history ends with the rule in force and matches the recorder', () => {
+  const py = readFileSync(new URL('../recorder/record.py', import.meta.url), 'utf8');
+  const version = /RULES_VERSION = '([^']+)'/.exec(py)[1];
+  assert.equal(RULE_HISTORY[RULE_HISTORY.length - 1].version, version);
+  assert.equal(RULE_HISTORY[0].since, RULES.liveSince, 'the record begins with the first rule scored live');
+  for (const h of RULE_HISTORY) assert.ok(py.includes(`('${h.since}', '${h.version}', '${h.change}')`), `the recorder carries ${h.version} in the same words`);
+  assert.equal(Number(/T1, BLOW_LEAD, BLOW_SPREAD = [^\n]*?, (\d+), \d+, \d+\n/.exec(py)[1]), RULES.lastMinute, 'and stops at the same minute');
+});
+
+test('how long an open signal stayed bettable', () => {
+  const s = totals(steady([5, 5, 5, 5]))[0];
+  const rows = (gaps) => model.track([150, 0], steady(gaps));
+  assert.equal(lastedSec(s, rows([5, 5, 5, 5, 5, 5])), null, 'still on at every reading since');
+  assert.equal(lastedSec(s, rows([5, 5, 5, 5, 5, 0.2, 5])), 120, 'gone at the second reading after it, two minutes on');
+  assert.equal(lastedSec(s, rows([5, 5, 5, 5])), null, 'nothing after it yet');
 });
 
 test('an open signal is checked against the quote showing now', () => {

@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=21">
+<link rel="stylesheet" href="css/app.css?v=22">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -155,7 +155,7 @@
         <div class="side is-home" id="side-home"></div>
       </div>
       <div class="sched feed" id="game-feed" aria-label="Signals in this game" hidden></div>
-      <div class="markets" id="markets" role="group" aria-label="Market">
+      <div class="markets" id="markets" role="group" aria-label="Market" hidden>
         <button type="button" data-market="total" aria-pressed="true">Game total</button>
         <button type="button" data-market="away" aria-pressed="false" id="mk-away">Away</button>
         <button type="button" data-market="home" aria-pressed="false" id="mk-home">Home</button>
@@ -174,7 +174,7 @@
       <dl class="facts">
         <div class="book"><dt id="f-book-l">Sportsbook live</dt><dd id="f-book">–</dd></div>
         <div class="fair"><dt id="f-fair-l">Fair</dt><dd id="f-fair">–</dd></div>
-        <div><dt>Fair minus book, now</dt><dd id="f-gap">–</dd></div>
+        <div><dt id="f-gap-l">Fair minus book, now</dt><dd id="f-gap">–</dd></div>
         <div><dt id="f-sigma">Three-minute average, in deviations</dt><dd id="f-dev">–</dd></div>
         <div><dt>Chance of the over</dt><dd id="f-over">–</dd></div>
         <div><dt>Pregame</dt><dd id="f-pre">–</dd></div>
@@ -190,9 +190,9 @@
       </div>
 
       <div class="block">
-        <h2>The gap in each market</h2>
-        <p class="note">Fair minus book for the combined total and for each team’s implied total, on one scale. Choose one to chart it above.</p>
-        <div class="wall is-three" id="mk-wall"></div>
+        <h2>The gap through the game</h2>
+        <p class="note">Fair minus book for the game total, in deviations. The bold line is the three-minute average a signal is judged on.</p>
+        <div class="wall is-one" id="mk-wall"></div>
       </div>
 
       <div class="block" id="sig-block">
@@ -219,7 +219,7 @@
     <div class="lead">
       <div class="lead-say">
         <h1 class="headline" id="rec-head">The record.</h1>
-        <p class="standfirst">Every signal the recorder has logged, settled against the final score, wins and losses alike. A game total and the two team totals in one game are the same view counted up to three times, so read the record by game as well as by signal. <a href="#/about">What counts as a signal</a>.</p>
+        <p class="standfirst">Every signal the recorder has logged, settled against the final score, wins and losses alike. Signals are on the game total, at the price the sportsbook was quoting. <a href="#/about">What counts as a signal</a>.</p>
         <p class="share-row"><button type="button" class="key" data-share="record">Share the record</button></p>
       </div>
     </div>
@@ -227,13 +227,13 @@
       <div><dt>Won–lost, scored live</dt><dd id="r-all">–</dd></div>
       <div><dt>Units, 1 risked per signal</dt><dd id="r-units">–</dd></div>
       <div><dt>Games ahead–behind</dt><dd id="r-games">–</dd></div>
-      <div><dt>Game totals, quoted price</dt><dd id="r-totals">–</dd></div>
+      <div><dt>Same bets a minute later</dt><dd id="r-late">–</dd></div>
     </dl>
     <p class="note" id="r-sides" hidden></p>
 
     <div class="block" id="units-block" hidden>
       <h2>Units won or lost, signal by signal</h2>
-      <p class="note">One unit risked on every signal scored live, at the price logged with it, in the order they fired. The thin line is game totals alone, the only signals settled at a quoted price.</p>
+      <p class="note">One unit risked on every signal scored live, at the price the sportsbook was quoting, in the order they fired.</p>
       <div class="panel chart-panel"><div class="chart" id="units"></div></div>
     </div>
 
@@ -244,6 +244,17 @@
         <table class="first-wraps drop-46">
           <thead><tr><th>Market</th><th class="r">Signals</th><th class="r">Won–lost</th><th class="r">Win rate</th><th class="r">Units</th><th class="r">Open</th></tr></thead>
           <tbody id="split-rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="block" id="late-block" hidden>
+      <h2>What a late bettor would have got</h2>
+      <p class="note">The same game-total signals, bet at the line and price showing a little later, whether or not the edge was still there. Still on is the share that still passed the price test. Signals logged before November 22 were read about once a minute, so their 30-second row is the next reading.</p>
+      <div class="sheet">
+        <table class="first-wraps is-late">
+          <thead><tr><th>Bet placed</th><th class="r">Signals</th><th class="r">Won–lost</th><th class="r">Still on</th><th class="r">Units</th></tr></thead>
+          <tbody id="late-rows"></tbody>
         </table>
       </div>
     </div>
@@ -317,7 +328,7 @@
           <button type="button" data-v="all" aria-pressed="true">All</button><button type="button" data-v="Won" aria-pressed="false">Won</button><button type="button" data-v="Lost" aria-pressed="false">Lost</button><button type="button" data-v="open" aria-pressed="false">Open</button>
         </div>
         <div class="seg" id="led-market" role="group" aria-label="Market">
-          <button type="button" data-v="all" aria-pressed="true">Both markets</button><button type="button" data-v="total" aria-pressed="false">Game totals</button><button type="button" data-v="team" aria-pressed="false">Team totals</button>
+          <button type="button" data-v="total" aria-pressed="true">Game totals</button><button type="button" data-v="team" aria-pressed="false">Team totals, dropped</button><button type="button" data-v="all" aria-pressed="false">Both</button>
         </div>
       </div>
       <p class="note" id="ledger-count"></p>
@@ -329,7 +340,7 @@
       </div>
       <p><button type="button" class="key" id="ledger-more" hidden></button></p>
       <p class="quiet" id="ledger-none" hidden>No signals logged yet.</p>
-      <p class="quiet small">Game totals are settled at the sportsbook’s live price. Team totals are implied from the live total and spread, and priced at an estimated -115.</p>
+      <p class="quiet small">Game totals are settled at the sportsbook’s live price. Team totals, dropped on November 22, were implied from the live total and spread and priced at an estimated -115.</p>
     </div>
   </section>
   <section id="view-about" hidden>
@@ -363,7 +374,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=21"></script>
+<script type="module" src="js/app.js?v=22"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

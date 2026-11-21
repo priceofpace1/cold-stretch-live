@@ -1,0 +1,36 @@
+name: watchdog
+
+# Every ten minutes: if games are on and the recorder has saved nothing for fifteen, stop any run that is stuck and
+# start the recorder again. The run then fails on purpose, so the restart shows up as a failed check.
+on:
+  schedule:
+    - cron: '4,14,24,34,44,54 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the recorder saving?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch -q --depth 1 origin data || true
+          verdict="$(python3 recorder/watchdog.py)"
+          echo "$verdict"
+          if [ "${verdict%% *}" = "stale" ]; then
+            for id in $(gh run list --workflow recorder.yml --status in_progress --json databaseId --jq '.[].databaseId'); do gh run cancel "$id" || true; done
+            sleep 20
+            gh workflow run recorder.yml --ref main
+            exit 1
+          fi

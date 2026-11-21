@@ -1,7 +1,7 @@
 // The board's headline in every state of a slate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boardWords, signalWords, agoWords } from '../js/words.js';
+import { boardWords, signalWords, agoWords, lastedWords } from '../js/words.js';
 
 const base = { loaded: true, today: true, weekday: 'Wednesday', games: 60, live: 0, ahead: 0, nextTip: '6:00 PM', anyFinal: false, readings: 0, apart: 1.4, firstMinute: 4, signals: { n: 0, open: 0, won: 0, lost: 0, pushed: 0 } };
 const say = (over) => boardWords({ ...base, ...over });
@@ -56,6 +56,12 @@ test('an open signal says whether it can still be bet', () => {
   assert.equal(say2({ state: 'off', why: 'lopsided' }).text, 'Lead of 15 or more, where signals are off');
   assert.equal(say2({ state: 'none' }).on, false);
   assert.equal(say2(null).text, 'No live line right now');
+});
+
+test('how long a signal lasted', () => {
+  assert.equal(lastedWords(20), 'after 20 sec');
+  assert.equal(lastedWords(44), 'after 40 sec');
+  assert.equal(lastedWords(200), 'after 3 min');
 });
 
 test('how long ago a signal fired', () => {

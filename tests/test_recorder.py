@@ -125,15 +125,85 @@ class Recording(unittest.TestCase):
         f = record.fair(150, 0, 24, 34, 36)
         self.assertEqual(s[0]['chance'], round(100 * (1 - record.cdf(-5 / f['sd_total']))), 'and the chance logged is the chance on that quote')
 
+    def test_signals_fire_on_the_game_total_alone(self):
+        g = self.game([4] * 6)
+        self.assertEqual({s['mkt'] for s in record.signals_for(g)}, {'total'})
+        teams = record.signals_for(self.game([4] * 6, a0=24, h0=32), markets=('away', 'home'))
+        self.assertTrue(teams and all(s['mkt'] in ('away', 'home') and s['priced'] == 'Assumed' for s in teams), 'team totals are still judged when asked for, as a comparison')
+
+    def test_one_fresh_reading_and_a_stale_one_are_not_an_average(self):
+        g = self.game([5] * 4)                                   # readings at 0, 60, 120 and 180 seconds
+        late = self.game([5] * 12)['r'][10:]                     # then nothing until two readings ten minutes on
+        g['r'] += late
+        rows = record.rolled(g)
+        self.assertIsNotNone(rows[3]['avg'], 'four readings across three minutes are an average')
+        self.assertIsNone(rows[4]['avg'], 'one reading after a long hole is not, even with the last one carried forward')
+        self.assertIsNone(rows[5]['avg'], 'nor are two')
+        dense = self.game([5] * 7, every=30)                     # the recorder now keeps a reading every 30 seconds
+        self.assertEqual([r['avg'] is not None for r in record.rolled(dense)], [False] * 5 + [True] * 2, 'two and a half minutes of readings are needed')
+
+    def test_a_reading_is_kept_every_thirty_seconds(self):
+        self.add(1000, 10.0, 15, 15, 150.5); self.add(1020, 10.3, 17, 15, 151.5); self.add(1030, 10.5, 17, 15, 151.5); self.add(1060, 11.0, 19, 15, 152.5)
+        self.assertEqual([r[0] for r in self.store.day('20261117')['g1']['r']], [1000, 1030, 1060])
+        for ts in (1090, 1120, 1150): self.add(ts, 11.0, 19, 15, 152.5)   # halftime: nothing moves, and each poll is still a reading
+        self.assertEqual(len(self.store.day('20261117')['g1']['r']), 6, 'so a stretch with no readings always means the line was not being read')
+
+    def test_the_line_a_late_bettor_would_have_found_is_logged(self):
+        g = self.game([5, 5, 5, 5, 5, 0.2, 5], every=30); g['r'] = [[r[0] + 1000] + r[1:] for r in g['r']]
+        s = self.total(self.game([5, 5, 5, 5, 5, 5, 5, 5], every=30))[0]; s = dict(s, ts=s['ts'] + 1000)   # fired at the sixth reading
+        g = self.game([5, 5, 5, 5, 5, 5, 0.2, 5, 5, 5], every=30); g['r'] = [[r[0] + 1000] + r[1:] for r in g['r']]
+        later = record.later_of(g, s)
+        self.assertEqual(sorted(later), ['120', '30', '60'])
+        self.assertEqual((later['30'][0], later['30'][3]), (30, False), 'thirty seconds on the book had closed the gap')
+        self.assertEqual((later['60'][0], later['60'][3]), (60, True), 'a minute on it was there again')
+        self.assertEqual(later['60'][2], -110, 'at the price quoted then')
+        self.assertIsNone(record.later_of(self.game([5] * 7, every=30), dict(s, ts=150))['120'], 'no reading that late: nothing is made up')
+        for r in g['r']: r[6] = r[7] = None
+        self.assertEqual(record.later_of(g, s)['60'][2:], [None, False], 'a game total with no price is off the board')
+        self.assertEqual(record.later_of(g, dict(s, mkt='home'))['60'][2], -115, 'a team total is priced at the estimate')
+
+    def test_signals_logged_live_stand_when_the_rule_changes(self):
+        live, before = '20261120', '20261117'
+        self.assertEqual((record.rule_of(before), record.rule_of(live), record.rule_of('20261122')), (None, '2026-11-19.2', record.RULES_VERSION))
+        self.assertEqual(record.RULE_STARTS[-1][1], record.RULES_VERSION, 'the newest entry in the history is the rule in force')
+        for date in (live, before):
+            for i in range(6): self.store.add(date, 'g-' + date, 'Away U', 'Home St', None, None, [150, 0], 'Live', None, [i * 60, 36 + i * 0.5, 60 + i, 60 + i, 141.5, 0, -110, -110])
+            self.store.add(date, 'g-' + date, 'Away U', 'Home St', None, None, [150, 0], 'Final', [70, 72], None)
+        self.store.save()
+        logged = lambda date: dict(id=f'g-{date}|total|Over', date=date, game='g-' + date, matchup='Away U at Home St', mkt='total', market='Game total', side='Over', spot='Book below fair',
+                                   ts=120, t=37.0, score='62-62', line=140.5, price=-110, priced='DraftKings', fair=143.0, edge=2.5, dev=2.1, sigma=1.2, chance=61, final=None, result='Pending')
+        json.dump([logged(live), logged(before)], open(os.path.join(self.dir.name, 'ledger.json'), 'w'))
+        json.dump({'version': '2026-11-19.2'}, open(os.path.join(self.dir.name, 'rules.json'), 'w'))
+        self.assertTrue(record.migrate(self.dir.name))
+        ledger = json.load(open(os.path.join(self.dir.name, 'ledger.json')))
+        kept = [s for s in ledger if s['date'] == live]
+        self.assertEqual([(s['t'], s['line'], s['rule'], s['result'], s['final']) for s in kept], [(37.0, 140.5, '2026-11-19.2', 'Won', 142)],
+                         'a signal logged live at minute 37 stays in the record under the rule of its day, and is settled')
+        self.assertIn('later', kept[0])
+        self.assertEqual([s for s in ledger if s['date'] == before], [], 'a slate from before the record began is judged again: no signal after minute 34 now')
+        rules = json.load(open(os.path.join(self.dir.name, 'rules.json')))
+        self.assertEqual([h['version'] for h in rules['history']], [v for _, v, _ in record.RULE_STARTS])
+
+    def test_the_watchdog_acts_only_when_games_are_on_and_nothing_is_saved(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'recorder')); import watchdog
+        now = 1_800_000_000; iso = lambda t: __import__('datetime').datetime.fromtimestamp(t, __import__('datetime').timezone.utc).strftime('%Y-%m-%dT%H:%MZ')
+        ev = lambda state, start=now: {'status': {'type': {'state': state}}, 'date': iso(start)}
+        self.assertEqual(watchdog.verdict([ev('post'), ev('pre', now + 7200)], None, now)[0], 'idle', 'nothing on and nothing due: silence is fine')
+        self.assertEqual(watchdog.verdict([ev('in')], now - 200, now)[0], 'ok')
+        self.assertEqual(watchdog.verdict([ev('in')], now - 1200, now)[0], 'stale', 'a game is on and nothing has been saved for twenty minutes')
+        self.assertEqual(watchdog.verdict([ev('in')], None, now)[0], 'stale', 'or nothing at all for this slate')
+        self.assertEqual(watchdog.verdict([ev('pre', now + 600)], now - 5000, now)[0], 'stale', 'ten minutes before a tip the recorder should be up')
+        self.assertEqual(watchdog.verdict([ev('pre', now + 600)], now - 100, now)[0], 'ok')
+
     def test_a_market_fires_once_a_game_unless_it_is_allowed_again_after_the_gap_closes(self):
         there_and_back = [4] * 6 + [0] * 6 + [4] * 6   # out, closed, out again
-        once = self.total(self.game(there_and_back))
-        twice = [s for s in record.signals_for(self.game(there_and_back), again=1.0) if s['mkt'] == 'total']
+        once = self.total(self.game(there_and_back, start=10))
+        twice = [s for s in record.signals_for(self.game(there_and_back, start=10), again=1.0) if s['mkt'] == 'total']
         self.assertEqual(len(once), 1)
         self.assertEqual(len(twice), 2)
         self.assertEqual(twice[0]['id'], once[0]['id'], 'the first signal is the same one')
         self.assertNotEqual(twice[1]['id'], twice[0]['id'], 'and the second has its own id')
-        stays_out = [s for s in record.signals_for(self.game([4] * 18), again=1.0) if s['mkt'] == 'total']
+        stays_out = [s for s in record.signals_for(self.game([4] * 18, start=10), again=1.0) if s['mkt'] == 'total']
         self.assertEqual(len(stays_out), 1, 'a gap that never closes is still one signal')
 
     def test_lopsided_spots_are_judged_apart_and_kept_out_of_the_yardstick(self):
@@ -187,8 +257,8 @@ class Recording(unittest.TestCase):
 
     def test_yardstick_comes_from_earlier_slates_only(self):
         import random; random.seed(7)
-        for i in range(320):
-            t = 4 + i * 0.1; a = h = int(t * 1.8)
+        for i in range(330):
+            t = 4 + i * 0.09; a = h = int(t * 1.8)
             f = sum(record.fair(150, 0, t, a, h)[k] for k in ('fa', 'fh'))
             self.store.add('20261117', 'g1', 'Away U', 'Home St', None, None, [150, 0], 'Live', None, [i * 60, round(t, 2), a, h, round((f + random.gauss(0, 2)) * 2) / 2, 0, -110, -110])
         self.store.save()

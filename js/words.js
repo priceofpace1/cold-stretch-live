@@ -55,3 +55,8 @@ export function agoWords(seconds) {
   const m = Math.floor(seconds / 60);
   return m < 60 ? `${m} min ago` : '';
 }
+
+/** How long a signal stayed bettable before its edge went, to tack on after "Edge gone at 125.5". */
+export function lastedWords(seconds) {
+  return seconds < 90 ? `after ${Math.max(10, Math.round(seconds / 10) * 10)} sec` : `after ${Math.round(seconds / 60)} min`;
+}

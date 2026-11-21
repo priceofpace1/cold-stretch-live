@@ -10,19 +10,32 @@ export const RULES = Object.freeze({
   leanDev: 1.5, // the watch tier
   margin: 0.05, // and the chance must beat the price's break-even by this much
   windowSec: 180, // seconds averaged
-  carrySec: 420, // the reading just before the window is carried forward if it is no older than this
+  carrySec: 60, // the reading just before the window is carried forward if it is no older than this
+  // An average exists only when the window itself holds this many readings, reaching back over all but 30 seconds of it.
+  // One fresh reading and a stale one carried forward are not a three-minute average.
+  minReadings: 3,
   averageFrom: 2, // readings from this minute on feed the average
-  // The slate the current rule took effect on. Earlier slates are scored again under it after the fact, so the record
-  // shows them apart from signals scored live. Move this date whenever the signal itself changes.
-  ruleSince: '20261119',
+  // The first slate scored live. Signals logged from then on stand as logged, under the rule of their day (see
+  // RULE_HISTORY). Earlier slates were recorded before the record began and are scored after the fact.
+  liveSince: '20261119',
+  markets: Object.freeze(['total']), // a signal fires on the game total alone
   firstMinute: 4, // signals only between these elapsed minutes
-  lastMinute: 38,
+  lastMinute: 34,
   blowoutLead: 15, // no signals at or beyond this lead
   blowoutSpread: 20, // or this pregame spread
   staleMs: 100000, // a live line older than this is not acted on
   measureFrom: 4, // the slate summary and the yardstick count readings between these minutes (the recorder uses the same window)
-  measureTo: 38,
+  measureTo: 34,
 });
+
+/**
+ * Every version of the signal rule, oldest first: the first slate it was scored live on, and what changed.
+ * The recorder holds the same list (RULE_STARTS in recorder/record.py); a test keeps the two in step.
+ */
+export const RULE_HISTORY = Object.freeze([
+  { since: '20261119', version: '2026-11-19.2', change: 'A signal must still carry its edge on the quote showing when it fires, not only on the three-minute average.' },
+  { since: '20261122', version: '2026-11-22.1', change: 'Signals stop at minute 34, not 38: the model knows nothing of fouling and clock play. An average needs three readings of its own covering two and a half minutes, and the recorder keeps a reading every 30 seconds. Team totals are dropped: their lines were implied from the total and spread, and their price was an estimate.' },
+]);
 
 /**
  * Summary of a set of fair-minus-book gaps: how far apart the two numbers ran, and how often the book
@@ -61,6 +74,15 @@ export function signalNow(s, row) {
   const base = { line: m.line, price, quoted: quoted != null, chance, need, moved: m.line !== s.line };
   if (!row.eligible) return { ...base, state: 'off', why: row.t > RULES.lastMinute ? 'late' : 'lopsided' };
   return { ...base, state: chance >= need ? 'on' : 'gone' };
+}
+
+/**
+ * How long an open signal stayed bettable: the seconds from the signal to the first later reading on which it no longer
+ * passed (signalNow not 'on'). rows are the game's tracked readings. Null while it has passed on every reading since.
+ */
+export function lastedSec(s, rows) {
+  for (const row of rows) if (row.ts > s.at && signalNow(s, row).state !== 'on') return row.ts - s.at;
+  return null;
 }
 
 /** Elapsed game minutes (0-40) from ESPN's period and "MM:SS" clock. Overtime clamps to 40. */
@@ -191,8 +213,8 @@ export function createModel(json) {
    * A game's readings, each judged on the rolling average of its gap: the readings of the last `windowSec` seconds plus
    * the one just before them, carried forward. Per market this adds avgEdge (points), avgDev (deviations), the side,
    * chance and price that go with the average, `reach` (avgDev, or 0 when the game is not eligible or the price leaves
-   * no room) and the signal: 'buy' at buyDev, 'lean' at leanDev, else null. No average exists until the line has been
-   * followed for most of a window.
+   * no room) and the signal: 'buy' at buyDev, 'lean' at leanDev, else null. No average exists until the window holds
+   * minReadings readings reaching back over most of it.
    * readings: [[unixSeconds, elapsedMinutes, awayPts, homePts, bookTotal, bookSpread, overPrice, underPrice], ...]
    * opts: { yard, buyDev, windowSec }. windowSec 0 judges single readings.
    */
@@ -210,8 +232,8 @@ export function createModel(json) {
       const first = hist.findIndex((x) => r[0] - x.ts <= windowSec);
       const carried = windowSec > 0 && first > 0 && r[0] - windowSec - hist[first - 1].ts <= RULES.carrySec;
       const use = hist.slice(carried ? first - 1 : first);
+      const ready = windowSec === 0 || (hist.length - first >= RULES.minReadings && r[0] - hist[first].ts >= cover);
       hist = hist.slice(Math.max(0, first - 1));
-      const ready = windowSec === 0 || carried || r[0] - use[0].ts >= cover;
       keys.forEach((k, i) => {
         const m = j.markets[k];
         if (!ready) return;
@@ -237,17 +259,19 @@ export function createModel(json) {
   /**
    * Signals in a game's readings: the first reading per market and side whose rolling average is buyDev deviations out.
    * finals: {away, home} once the game is over, else null.
-   * opts: { yard, buyDev, windowSec, armDev, lopsided }. armDev, when given, also requires the reading before it to have been
-   * that far out on the same side (only used by the single-reading comparison rules).
+   * opts: { yard, buyDev, windowSec, armDev, lopsided, markets }. armDev, when given, also requires the reading before it to
+   * have been that far out on the same side (only used by the single-reading comparison rules). markets: where a signal
+   * may fire. The rule is the game total alone, the one market with a posted line and price.
    */
   function signalsFor(pre, readings, finals, opts = {}) {
     const fired = new Set();
     const out = [];
     const armDev = opts.armDev == null ? null : opts.armDev;
+    const keys = opts.markets || RULES.markets;
     let prev = {};
     for (const row of track(pre, readings, opts)) {
       const cur = {};
-      for (const k of ['total', 'away', 'home']) {
+      for (const k of keys) {
         const m = row.markets[k];
         if (!m.reach) continue;
         cur[k] = { side: m.side, reach: m.reach };
