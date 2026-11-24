@@ -46,7 +46,7 @@ const price = (p) => `${p > 0 ? '+' : '−'}${Math.abs(p)}`;
  */
 export function signalWords(now, limits) {
   if (!now || now.state === 'none') return { text: 'No live line right now', on: false };
-  if (now.state === 'off') return { text: now.why === 'late' ? `Past minute ${limits.lastMinute}, where signals stop` : `Lead of ${limits.lead} or more, where signals are off`, on: false };
+  if (now.state === 'off') return { text: now.why === 'stalled' ? 'The score feed has stalled' : now.why === 'late' ? `Past minute ${limits.lastMinute}, where signals stop` : `Lead of ${limits.lead} or more, where signals are off`, on: false };
   const line = now.line.toFixed(1);
   // The line named is the one showing now; the row above it carries the line the signal fired at.
   if (now.state === 'on') return { text: `Still on at ${line}${now.quoted ? ` (${price(now.price)})` : ''}`, on: true };
@@ -64,6 +64,22 @@ export function watchWords(d) {
     return { side, on: true, text: d.run < d.hold ? `Building on the ${side}, ${had} of ${need} minutes: ${nums}` : `Held ${had} min on the ${side}, not a bet at this line and price: ${nums}` };
   }
   return { side, on, text: `${on ? 'On watch for the' : 'Leaning to the'} ${side}: book ${d.book.toFixed(1)}, fair ${d.fair.toFixed(1)}` };
+}
+
+const american = (p) => `${p > 0 ? '+' : '−'}${Math.abs(Math.round(p))}`;
+
+/**
+ * The words on the bet button of an open signal. venue: { key, name }. For the sportsbook, q is { line, price, goodTo }
+ * on the quote showing now; for a prediction market, q is the best contract on the signal's side { line, price } with
+ * price in dollars. Returns { label, note }.
+ */
+export function betWords(venue, side, q) {
+  const s = side.toLowerCase();
+  if (venue.key === 'book') {
+    const further = q.goodTo != null && q.goodTo !== q.line;
+    return { label: `Bet ${s} ${q.line.toFixed(1)} at ${american(q.price)}`, note: further ? `Worth taking ${side === 'Over' ? 'up' : 'down'} to ${q.goodTo.toFixed(1)} at that price.` : 'Not worth taking at a worse line.' };
+  }
+  return { label: `Buy ${s} ${q.line.toFixed(1)} at ${Math.round(q.price * 100)}¢ on ${venue.name}`, note: '' };
 }
 
 /** How long ago a signal fired, for the minutes it is fresh. */

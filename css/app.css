@@ -238,6 +238,15 @@ h2 { font: 600 23px/1.2 var(--serif); letter-spacing: -0.005em; }
 .log .when.is-open { color: var(--ink); }
 .log .call { font-weight: 500; white-space: nowrap; }
 .log .game { color: var(--sub); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the bet button under an open signal, and the choice of where it leads */
+.venue { display: flex; align-items: center; gap: 10px; }
+/* the desk's headings share one height, so the two columns start level whether or not the venue choice is showing */
+.desk h2 { min-height: 38px; display: flex; align-items: center; }
+.desk .block-head { align-items: center; }
+.bet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 0 20px 16px 86px; }
+.bet { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid var(--rule-strong); border-radius: 4px; color: var(--ink); font-weight: 600; text-decoration: none; }
+.bet.is-go { background: var(--ink); border-color: var(--ink); color: #fff; }
+.bet.is-go:hover { background: #1B2B45; border-color: #1B2B45; }
 #trend-key { display: flex; flex-direction: column; gap: 6px; }
 #trend-key .gloss { order: -1; }
 .sched .feed-all:hover { color: var(--ink); }
@@ -416,6 +425,8 @@ td.lost { color: var(--sub); }
   .log button { grid-template-columns: 46px minmax(0, 1fr) auto; row-gap: 0; }
   .log .game { grid-column: 2 / -1; grid-row: 2; font-size: 14px; white-space: normal; }
   .log .what { grid-column: 3; grid-row: 1; }
+  .bet-row { padding: 0 14px 14px; }
+  .bet { width: 100%; justify-content: center; }
   .sums { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
   .sums > div { padding: 11px 0; }
   .sums dd { font-size: 24px; }

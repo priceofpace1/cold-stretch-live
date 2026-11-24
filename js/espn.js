@@ -1,7 +1,7 @@
 // ESPN feeds. Unofficial endpoints: free, CORS-open, and liable to change, so every parser tolerates missing fields.
 // DraftKings' numbers come through ESPN's odds feed: provider 100 is the pregame/closing line, 200 is the live line.
 
-import { elapsed } from './model.js?v=26';
+import { elapsed } from './model.js?v=27';
 
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball';
 const CORE = 'https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball';
@@ -71,7 +71,25 @@ export function parseEvent(e) {
 }
 
 /** {pre: [total, homeSpread] | null, live: {total, spread, over, under} | null} from the odds feed. */
-export function parseOdds(d) {
+/**
+ * The sportsbook's own link for one side of the live total, from the odds item, or null. ESPN wraps the book's address in
+ * a tracking redirect and carries the real one in `preurl`; the bare address is used, and only if it is an https link to
+ * one of `hosts`.
+ */
+function betLink(item, rel, hosts) {
+  const hit = ((item && item.links) || []).find((l) => Array.isArray(l.rel) && l.rel.includes(rel) && typeof l.href === 'string');
+  if (!hit) return null;
+  try {
+    const outer = new URL(hit.href), u = new URL(outer.searchParams.get('preurl') || hit.href);
+    return u.protocol === 'https:' && hosts.includes(u.hostname) ? u.href : null;
+  } catch { return null; }
+}
+
+/**
+ * Pregame line and live quote from the odds list. hosts: where a bet link may lead (js/site.js); with none given, or
+ * none carried by the feed, the live quote has no `links`.
+ */
+export function parseOdds(d, hosts = []) {
   const out = { pre: null, live: null };
   for (const it of (d && d.items) || []) {
     const pid = String((it.provider || {}).id);
@@ -82,6 +100,8 @@ export function parseOdds(d) {
     if (pid === '200') {
       const cur = it.current || {};
       out.live = { total, spread, over: num((cur.over || {}).american), under: num((cur.under || {}).american) };
+      const over = betLink(it, 'over', hosts), under = betLink(it, 'under', hosts);
+      if (over || under) out.live.links = { over, under };
     }
   }
   return out;

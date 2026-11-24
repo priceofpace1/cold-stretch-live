@@ -86,3 +86,11 @@ test('with the record beside the headline, the live standfirst stays to the day'
   assert.equal(watchWords({ ...far, dev: -2.3, run: 250 }).text, 'Held 4 min on the under, not a bet at this line and price: book 142.5, fair 146.0');
   assert.equal(watchWords({ ...far, run: null }).text, 'On watch for the over: book 142.5, fair 146.0');
 });
+
+test('the bet button says the bet, and how far the line can move against it', async () => {
+  const { betWords } = await import('../js/words.js');
+  const book = { key: 'book', name: 'Sportsbook' };
+  assert.deepEqual(betWords(book, 'Over', { line: 142.5, price: -110, goodTo: 143.5 }), { label: 'Bet over 142.5 at −110', note: 'Worth taking up to 143.5 at that price.' });
+  assert.deepEqual(betWords(book, 'Under', { line: 150.5, price: 105, goodTo: 150.5 }), { label: 'Bet under 150.5 at +105', note: 'Not worth taking at a worse line.' });
+  assert.equal(betWords({ key: 'coinbase', name: 'Coinbase' }, 'Over', { line: 141.5, price: 0.52 }).label, 'Buy over 141.5 at 52¢ on Coinbase');
+});

@@ -65,6 +65,7 @@ class Recording(unittest.TestCase):
         return g
 
     def total(self, g, **kw):
+        kw.setdefault('hold', 0)   # each other part of the rule is looked at with the hold switched off; the hold has a test of its own
         return [s for s in record.signals_for(g, **kw) if s['mkt'] == 'total']
 
     def test_the_signal_is_judged_on_a_three_minute_average(self):
@@ -84,6 +85,23 @@ class Recording(unittest.TestCase):
         self.assertEqual([s['result'] for s in self.total(self.game([0, 3, 3, 3, 3, 3, 3], final=[50, 50]))], ['Lost'])
         self.assertEqual(self.total(self.game([0, -3, -3, -3, -3, -3]))[0]['side'], 'Under')
 
+    def test_a_signal_waits_for_its_gap_to_hold_two_minutes(self):
+        held = lambda g, **kw: [s for s in record.signals_for(g, **kw) if s['mkt'] == 'total']
+        g = self.game([4] * 14, every=30)
+        self.assertEqual([s['ts'] for s in self.total(g)], [150])
+        self.assertEqual([s['ts'] for s in held(g)], [270])
+        self.assertEqual(held(g)[0]['line'], g['r'][9][4], 'the line of the reading it is logged on')
+        self.assertEqual([s['ts'] for s in held(g, hold=180)], [330])
+        self.assertEqual(held(self.game([4] * 8 + [0] * 8, every=30)), [], 'the gap closed before the two minutes were up')
+        again = self.game([4] * 7 + [-1] * 7 + [4] * 12, every=30)
+        self.assertEqual(len(held(again)), 1)
+        self.assertGreaterEqual(held(again)[0]['ts'], self.total(again)[0]['ts'] + 14 * 30, 'the count starts over')
+        hole = self.game([4] * 22, every=30)
+        for r in hole['r'][8:]: r[0] += 200
+        self.assertGreaterEqual(held(hole)[0]['ts'], hole['r'][8][0] + record.HOLD - record.HOLD_SLACK, 'counted from after the hole')
+        minute = self.game([4] * 8)
+        self.assertEqual(held(minute)[0]['ts'] - self.total(minute)[0]['ts'], 120)
+
     def test_price_thresholds_windows_and_yardsticks(self):
         held = [2.7] * 5
         self.assertEqual(len(self.total(self.game(held))), 1)
@@ -100,7 +118,7 @@ class Recording(unittest.TestCase):
         self.assertEqual(self.total(self.game(held, h0=30 + record.BLOW_LEAD)), [])
         self.assertEqual(self.total(self.game(held, pre=(150, -record.BLOW_SPREAD))), [])
         self.assertEqual(self.total(self.game(held, start=record.T1 + 0.5, every=20)), [])
-        self.assertTrue(all(s['t'] >= record.T0 for s in record.signals_for(self.game(held, start=0, a0=0, h0=0, every=30))))
+        self.assertTrue(all(s['t'] >= record.T0 for s in record.signals_for(self.game(held, start=0, a0=0, h0=0, every=30), hold=0)))
 
     def test_a_run_hands_over_when_the_recorder_on_main_has_changed(self):
         import subprocess
@@ -127,8 +145,8 @@ class Recording(unittest.TestCase):
 
     def test_signals_fire_on_the_game_total_alone(self):
         g = self.game([4] * 6)
-        self.assertEqual({s['mkt'] for s in record.signals_for(g)}, {'total'})
-        teams = record.signals_for(self.game([4] * 6, a0=24, h0=32), markets=('away', 'home'))
+        self.assertEqual({s['mkt'] for s in record.signals_for(g, hold=0)}, {'total'})
+        teams = record.signals_for(self.game([4] * 6, a0=24, h0=32), markets=('away', 'home'), hold=0)
         self.assertTrue(teams and all(s['mkt'] in ('away', 'home') and s['priced'] == 'Assumed' for s in teams), 'team totals are still judged when asked for, as a comparison')
 
     def test_one_fresh_reading_and_a_stale_one_are_not_an_average(self):
@@ -162,9 +180,51 @@ class Recording(unittest.TestCase):
         self.assertEqual(record.later_of(g, s)['60'][2:], [None, False], 'a game total with no price is off the board')
         self.assertEqual(record.later_of(g, dict(s, mkt='home'))['60'][2], -115, 'a team total is priced at the estimate')
 
+    def feed(self, n, minute, pts=lambda i: 40 + i, gap=lambda i: 4, shift=lambda i: 0, final=None, date='20261117'):
+        """Readings 30 seconds apart with the book gap(i) points under fair; minute(i) and pts(i) are the feed's clock and score."""
+        g = dict(id='g', date=date, away='Away U', home='Home St', pre=[150, 0], final=final, r=[])
+        for i in range(n):
+            t = minute(i); p = pts(i); a = p // 2; h = p - a; f = record.fair(150, 0, t, a, h)
+            g['r'].append([i * 30, t, a, h, f['fa'] + f['fh'] - gap(i) + shift(i), a - h, -110, -110])
+        return g
+
+    def test_nothing_is_judged_while_the_score_feed_is_stalled(self):
+        moving = lambda i: 10 + i * 0.4
+        stands = lambda i: moving(i) if i < 4 else moving(3); still = lambda i: 40 + min(i, 3)
+        self.assertEqual(len(self.total(self.feed(14, moving))), 1)
+        self.assertEqual(len(self.total(self.feed(14, stands, still))), 1, 'an ordinary stoppage does not block a signal')
+        late = self.feed(24, stands, still, gap=lambda i: 0 if i < 16 else 4)
+        self.assertEqual(len(self.total(late)), 0, 'a clock that has stood five minutes is a stalled feed')
+        self.assertEqual(len(self.total(late, guard=False)), 1)
+        self.assertEqual(len(self.total(self.feed(14, stands, lambda i: 40 + (i if i < 4 else 3 + 2 * (i - 3))))), 0, 'points going up while the clock stands')
+        self.assertEqual(len(self.total(self.feed(14, stands, still, shift=lambda i: -4 if i == 5 else 0))), 0, 'the book moving four points while the clock stands')
+        self.assertEqual(len(self.total(self.feed(14, lambda i: 12.7, lambda i: 41))), 0, 'a game first seen already standing still')
+        resumes = self.total(self.feed(24, lambda i: 12.7 if i < 6 else 12.7 + (i - 5) * 0.4, lambda i: 41 + max(0, i - 5)))
+        self.assertEqual(len(resumes), 1); self.assertGreaterEqual(resumes[0]['ts'], 6 * 30 + 150)
+        self.assertEqual(len(self.total(self.feed(14, lambda i: 19.6 + i * 0.4 if i < 2 else 20, lambda i: 70 + min(i, 2)))), 1, 'halftime is not a stall')
+        bare = self.feed(16, moving)
+        bare['r'] = [[r[0], r[1], r[2], r[3], None, None, None, None] if i < 6 else r for i, r in enumerate(bare['r'])]
+        self.assertEqual(len(self.total(bare)), 1, 'readings without a line still keep the clock moving')
+
+    def test_a_signal_logged_on_a_stalled_feed_is_marked_and_kept(self):
+        live = '20261120'
+        for date, minute in ((live, lambda i: 12.7), ('20261121', lambda i: 10 + i * 0.4)):
+            g = self.feed(8, minute, (lambda i: 41) if date == live else (lambda i: 40 + i), date=date)
+            for r in g['r']: self.store.add(date, 'g-' + date, 'Away U', 'Home St', None, None, [150, 0], 'Live', None, r)
+            self.store.add(date, 'g-' + date, 'Away U', 'Home St', None, None, [150, 0], 'Final', [70, 72], None)
+        self.store.save()
+        logged = lambda date: dict(id=f'g-{date}|total|Over', date=date, game='g-' + date, matchup='Away U at Home St', mkt='total', market='Game total', side='Over', spot='Book below fair',
+                                   ts=150, t=12.7, score='20-21', line=140.5, price=-110, priced='DraftKings', fair=144.5, edge=4.0, dev=3.3, sigma=1.2, chance=62, final=None, result='Pending')
+        json.dump([logged(live), logged('20261121')], open(os.path.join(self.dir.name, 'ledger.json'), 'w'))
+        json.dump({'version': '2026-11-22.1'}, open(os.path.join(self.dir.name, 'rules.json'), 'w'))
+        self.assertTrue(record.migrate(self.dir.name))
+        ledger = {s['date']: s for s in json.load(open(os.path.join(self.dir.name, 'ledger.json')))}
+        self.assertEqual((ledger[live].get('fault'), ledger[live]['result']), ('stalled', 'Won'), 'kept, settled and marked')
+        self.assertNotIn('fault', ledger['20261121'], 'a signal logged in running play is not marked')
+
     def test_signals_logged_live_stand_when_the_rule_changes(self):
         live, before = '20261120', '20261117'
-        self.assertEqual((record.rule_of(before), record.rule_of(live), record.rule_of('20261122')), (None, '2026-11-19.2', record.RULES_VERSION))
+        self.assertEqual((record.rule_of(before), record.rule_of(live), record.rule_of(record.RULE_STARTS[-1][0])), (None, '2026-11-19.2', record.RULES_VERSION))
         self.assertEqual(record.RULE_STARTS[-1][1], record.RULES_VERSION, 'the newest entry in the history is the rule in force')
         for date in (live, before):
             for i in range(6): self.store.add(date, 'g-' + date, 'Away U', 'Home St', None, None, [150, 0], 'Live', None, [i * 60, 36 + i * 0.5, 60 + i, 60 + i, 141.5, 0, -110, -110])
@@ -198,16 +258,16 @@ class Recording(unittest.TestCase):
     def test_a_market_fires_once_a_game_unless_it_is_allowed_again_after_the_gap_closes(self):
         there_and_back = [4] * 6 + [0] * 6 + [4] * 6   # out, closed, out again
         once = self.total(self.game(there_and_back, start=10))
-        twice = [s for s in record.signals_for(self.game(there_and_back, start=10), again=1.0) if s['mkt'] == 'total']
+        twice = [s for s in record.signals_for(self.game(there_and_back, start=10), again=1.0, hold=0) if s['mkt'] == 'total']
         self.assertEqual(len(once), 1)
         self.assertEqual(len(twice), 2)
         self.assertEqual(twice[0]['id'], once[0]['id'], 'the first signal is the same one')
         self.assertNotEqual(twice[1]['id'], twice[0]['id'], 'and the second has its own id')
-        stays_out = [s for s in record.signals_for(self.game([4] * 18, start=10), again=1.0) if s['mkt'] == 'total']
+        stays_out = [s for s in record.signals_for(self.game([4] * 18, start=10), again=1.0, hold=0) if s['mkt'] == 'total']
         self.assertEqual(len(stays_out), 1, 'a gap that never closes is still one signal')
 
     def test_lopsided_spots_are_judged_apart_and_kept_out_of_the_yardstick(self):
-        held = [4] * 6; shadow = lambda g: [s for s in record.signals_for(g, lopsided=True) if s['mkt'] == 'total']
+        held = [4] * 6; shadow = lambda g: [s for s in record.signals_for(g, lopsided=True, hold=0) if s['mkt'] == 'total']
         wide, led, close = self.game(held, pre=(150, -record.BLOW_SPREAD)), self.game(held, h0=30 + record.BLOW_LEAD), self.game(held)
         self.assertEqual(len(shadow(wide)), 1, 'a wide spread fires only in the comparison')
         self.assertEqual(len(shadow(led)), 1, 'and so does a big lead')

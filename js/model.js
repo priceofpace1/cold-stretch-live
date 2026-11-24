@@ -14,7 +14,15 @@ export const RULES = Object.freeze({
   // An average exists only when the window itself holds this many readings, reaching back over all but 30 seconds of it.
   // One fresh reading and a stale one carried forward are not a three-minute average.
   minReadings: 3,
+  // A signal waits for its gap to hold: the average must stay buyDev deviations out, on one side, at every judged reading
+  // for holdSec seconds (less holdSlackSec, since readings are not exactly 30 seconds apart). A hole of runBreakSec in the
+  // readings starts the count again.
+  holdSec: 120, holdSlackSec: 15, runBreakSec: 150,
   averageFrom: 2, // readings from this minute on feed the average
+  // The score feed is taken as stalled, and nothing is judged, when the game clock has stood this long outside halftime,
+  // when this many points have gone up or the sportsbook's total has moved this far while it stood, or when a stretch at
+  // one game minute began with no reading in the jumpSec seconds and jumpMin game minutes before it.
+  stallSec: 300, stallPts: 4, stallLine: 4, jumpSec: 150, jumpMin: 3,
   // The first slate scored live. Signals logged from then on stand as logged, under the rule of their day (see
   // RULE_HISTORY). Earlier slates were recorded before the record began and are scored after the fact.
   liveSince: '20261119',
@@ -35,6 +43,7 @@ export const RULES = Object.freeze({
 export const RULE_HISTORY = Object.freeze([
   { since: '20261119', version: '2026-11-19.2', change: 'A signal must still carry its edge on the quote showing when it fires, not only on the three-minute average.' },
   { since: '20261122', version: '2026-11-22.1', change: 'Signals stop at minute 34, not 38: the model knows nothing of fouling and clock play. An average needs three readings of its own covering two and a half minutes, and the recorder keeps a reading every 30 seconds. Team totals are dropped: their lines were implied from the total and spread, and their price was an estimate.' },
+  { since: '20261125', version: '2026-11-25.1', change: 'No signal on a stalled score feed: when the game clock has stood for five minutes, when four points have gone up or the sportsbook total has moved four points while it stood, or when a game is first seen already standing still. Signals logged on such readings before this date are marked and left out of the headline record. A signal now waits for its gap to hold: the three-minute average must stay two deviations out for a further two minutes, and the signal is logged at the line and price showing then. On the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the others were close to break-even.' },
 ]);
 
 /**
@@ -62,11 +71,12 @@ export function breakEven(price) {
  * on this quote must still beat break-even by the margin. The three-minute average is not asked again, because the
  * question is whether the bet as logged can still be made, not whether it would fire a second time.
  * Returns { state, line, price, quoted, chance, need, moved }. state: 'on', 'gone' (the line or the game has moved),
- * 'off' (the rule would not fire here now: `why` is 'late' or 'lopsided'), or 'none' (no fresh line).
+ * 'off' (the rule would not fire here now: `why` is 'late', 'lopsided' or 'stalled'), or 'none' (no fresh line).
  */
 export function signalNow(s, row) {
   const m = row ? row.markets[s.market] : null;
   if (!m || m.line == null || m.over == null) return { state: 'none' };
+  if (row.stalled) return { state: 'off', why: 'stalled', line: m.line };
   const quoted = s.market === 'total' && row.quote ? row.quote[s.side === 'Over' ? 0 : 1] : null;
   // A game total showing a line but no price is off the board for the moment: nothing can be bet, so nothing is claimed.
   if (s.market === 'total' && quoted == null) return { state: 'none' };
@@ -86,25 +96,12 @@ export function lastedSec(s, rows) {
 }
 
 /**
- * Seconds the game clock has stood still at the end of a run of readings ([seconds, minute, ...]), as of `now`.
- * Halftime and the end of regulation are not stoppages of that kind and read 0. A long stretch is either a review or a
- * score feed that has stopped updating; the page cannot tell which, so it says only that the clock has not moved.
- */
-export function clockStoppedSec(readings, now) {
-  if (!readings.length) return 0;
-  const last = readings[readings.length - 1];
-  if (Math.abs(last[1] - 20) < 1e-6 || last[1] >= 40) return 0;
-  let i = readings.length - 1;
-  while (i > 0 && Math.abs(readings[i - 1][1] - last[1]) < 1e-6) i -= 1;
-  return Math.max(0, now - readings[i][0]);
-}
-
-/**
  * The public record in three figures: game totals scored live since `since` (a slate date), from the recorder's ledger.
  * units are at the price quoted when each signal fired; `late` is the same bets graded at the line showing a minute on.
+ * Signals logged on a stalled score feed (marked `fault` by the recorder) are left out.
  */
 export function recordOf(ledger, since) {
-  const rows = (ledger || []).filter((s) => s.date >= since && ((s.mkt || '') === 'total' || s.market === 'Game total'));
+  const rows = (ledger || []).filter((s) => s.date >= since && !s.fault && ((s.mkt || '') === 'total' || s.market === 'Game total'));
   const out = { n: rows.length, won: 0, lost: 0, units: 0, late: { won: 0, lost: 0 }, since };
   for (const s of rows) {
     if (s.result === 'Won') { out.won += 1; out.units += s.price > 0 ? s.price / 100 : 100 / -s.price; }
@@ -113,6 +110,17 @@ export function recordOf(ledger, since) {
     if (l && l[2] != null && s.final != null && s.final !== l[1] && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')) out.late[(s.final > l[1]) === (s.side === 'Over') ? 'won' : 'lost'] += 1;
   }
   return out;
+}
+
+/**
+ * Whether a reading was taken on a score feed that had stopped following the game. Four signs, none of them at halftime:
+ * the clock has stood longer than an ordinary stoppage; points have gone up while it stood; the sportsbook's total has
+ * moved while it stood, so the book is following a game the feed is not showing; or the stretch began with no reading
+ * just before it, so the game was first seen, or seen again after a hole, already standing still. Mirrors the recorder.
+ */
+export function stalledAt(run, ts, t, pts) {
+  if (Math.abs(t - 20) < 1e-6 || t >= 40) return false;
+  return ts - run.ts >= RULES.stallSec || pts - run.pts >= RULES.stallPts || (run.lo != null && run.hi - run.lo >= RULES.stallLine) || (!run.seen && ts > run.ts);
 }
 
 /** Elapsed game minutes (0-40) from ESPN's period and "MM:SS" clock. Overtime clamps to 40. */
@@ -255,9 +263,23 @@ export function createModel(json) {
     const keys = ['total', 'away', 'home'];
     let hist = [];
     const out = [];
+    let run = null, prev = null;
     for (const r of readings) {
+      // Every reading keeps the clock's history, with a line or without one: `run` is the stretch of readings at one
+      // game minute, when it began, the points then, the book's lowest and highest total in it, and whether the clock
+      // was seen to tick into it.
+      if (!run || Math.abs(r[1] - run.t) > 1e-6) run = { t: r[1], ts: r[0], pts: r[2] + r[3], lo: null, hi: null, seen: !!prev && r[0] - prev[0] <= RULES.jumpSec && r[1] - prev[1] >= -0.5 && r[1] - prev[1] <= RULES.jumpMin };
+      prev = r;
+      if (r[4] != null) { run.lo = run.lo == null ? r[4] : Math.min(run.lo, r[4]); run.hi = run.hi == null ? r[4] : Math.max(run.hi, r[4]); }
       if (r[4] == null || r[5] == null || r[1] < RULES.averageFrom) continue;
       const j = judge(pre, r[1], r[2], r[3], r[4], r[5], opts);
+      // A reading taken while the score feed was not following the game has no average and empties the window, so
+      // nothing is judged on it and the average starts again once the feed moves.
+      if (opts.guard !== false && stalledAt(run, r[0], r[1], r[2] + r[3])) {
+        hist = [];
+        out.push({ ts: r[0], t: r[1], away: r[2], home: r[3], ready: false, stalled: true, quote: [r[6] == null ? null : r[6], r[7] == null ? null : r[7]], ...j });
+        continue;
+      }
       hist.push({ ts: r[0], e: keys.map((k) => j.markets[k].edge) });
       const first = hist.findIndex((x) => r[0] - x.ts <= windowSec);
       const carried = windowSec > 0 && first > 0 && r[0] - windowSec - hist[first - 1].ts <= RULES.carrySec;
@@ -281,7 +303,7 @@ export function createModel(json) {
         if (m.reach >= buyDev) m.signal = 'buy';
         else if (j.eligible && size >= RULES.leanDev) m.signal = 'lean';
       });
-      out.push({ ts: r[0], t: r[1], away: r[2], home: r[3], ready, quote: [r[6] == null ? null : r[6], r[7] == null ? null : r[7]], ...j });
+      out.push({ ts: r[0], t: r[1], away: r[2], home: r[3], ready, stalled: false, quote: [r[6] == null ? null : r[6], r[7] == null ? null : r[7]], ...j });
     }
     return out;
   }
@@ -298,16 +320,22 @@ export function createModel(json) {
     const out = [];
     const armDev = opts.armDev == null ? null : opts.armDev;
     const keys = opts.markets || RULES.markets;
-    let prev = {};
+    const buyDev = opts.buyDev == null ? RULES.buyDev : opts.buyDev, holdSec = opts.holdSec == null ? RULES.holdSec : opts.holdSec;
+    let prev = {}, since = {}, lastTs = null;
     for (const row of track(pre, readings, opts)) {
       const cur = {};
+      // The hold is counted over judged readings only: one with no average, on a stalled feed or outside the window
+      // starts it again, and so does a hole in the readings.
+      if (!row.ready || row.stalled || !row.eligible) { since = {}; lastTs = null; } else { if (lastTs != null && row.ts - lastTs > RULES.runBreakSec) since = {}; lastTs = row.ts; }
       for (const k of keys) {
         const m = row.markets[k];
+        if (lastTs != null && m.avgDev != null && Math.abs(m.avgDev) >= buyDev) { if (!since[k] || since[k].side !== m.side) since[k] = { side: m.side, ts: row.ts }; } else delete since[k];
         if (!m.reach) continue;
         cur[k] = { side: m.side, reach: m.reach };
         const key = k + m.side;
         const armed = armDev == null || (prev[k] && prev[k].side === m.side && prev[k].reach >= armDev);
-        if (m.signal !== 'buy' || !armed || fired.has(key)) continue;
+        const held = holdSec <= 0 || (since[k] && row.ts - since[k].ts >= holdSec - RULES.holdSlackSec);
+        if (m.signal !== 'buy' || !held || !armed || fired.has(key)) continue;
         fired.add(key);
         const final = finals ? (k === 'total' ? finals.away + finals.home : finals[k]) : null;
         out.push({
@@ -323,5 +351,20 @@ export function createModel(json) {
     return out;
   }
 
-  return { coef, cdf, fair, judge, track, signalsFor, yardstick: baseYard, share: (t) => (t <= 0 ? 0 : t >= 40 ? 1 : coef(t).share) };
+  /**
+   * The worst line still worth taking on one side at a price: the furthest half-point from the line showing at which the
+   * chance still beats the price's break-even by the margin. m is a market of a tracked reading. Null when the line
+   * showing does not pass, so there is nothing to take.
+   */
+  function goodTo(m, side, price) {
+    if (!m || m.line == null || m.fair == null || !m.sd || price == null) return null;
+    const need = breakEven(price) + RULES.margin, step = side === 'Over' ? 0.5 : -0.5;
+    const chance = (line) => { const over = 1 - cdf((line - m.fair) / m.sd); return side === 'Over' ? over : 1 - over; };
+    if (chance(m.line) < need) return null;
+    let line = m.line;
+    for (let i = 0; i < 12 && chance(line + step) >= need; i += 1) line += step;
+    return line;
+  }
+
+  return { coef, cdf, fair, judge, track, signalsFor, goodTo, yardstick: baseYard, share: (t) => (t <= 0 ? 0 : t >= 40 ? 1 : coef(t).share) };
 }
