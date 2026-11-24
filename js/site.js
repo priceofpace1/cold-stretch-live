@@ -26,6 +26,10 @@ export const SITE = {
     pitch: 'One short email on game days: the slate, any signals, and the running record.',
   },
 
+  // Invite link to the alerts channel (a Discord invite, for example), drawn as a button beside the headline.
+  // Empty url: no button is drawn.
+  alerts: { label: 'Get alerts', url: '' },
+
   // Sportsbook referral link, shown beside a live signal. Empty url: no link is drawn and the About page says the
   // site carries no paid links. Take flat per-signup terms only; the disclosure on the About page says so.
   book: { name: '', url: '' },

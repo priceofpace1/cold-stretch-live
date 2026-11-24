@@ -85,6 +85,36 @@ export function lastedSec(s, rows) {
   return null;
 }
 
+/**
+ * Seconds the game clock has stood still at the end of a run of readings ([seconds, minute, ...]), as of `now`.
+ * Halftime and the end of regulation are not stoppages of that kind and read 0. A long stretch is either a review or a
+ * score feed that has stopped updating; the page cannot tell which, so it says only that the clock has not moved.
+ */
+export function clockStoppedSec(readings, now) {
+  if (!readings.length) return 0;
+  const last = readings[readings.length - 1];
+  if (Math.abs(last[1] - 20) < 1e-6 || last[1] >= 40) return 0;
+  let i = readings.length - 1;
+  while (i > 0 && Math.abs(readings[i - 1][1] - last[1]) < 1e-6) i -= 1;
+  return Math.max(0, now - readings[i][0]);
+}
+
+/**
+ * The public record in three figures: game totals scored live since `since` (a slate date), from the recorder's ledger.
+ * units are at the price quoted when each signal fired; `late` is the same bets graded at the line showing a minute on.
+ */
+export function recordOf(ledger, since) {
+  const rows = (ledger || []).filter((s) => s.date >= since && ((s.mkt || '') === 'total' || s.market === 'Game total'));
+  const out = { n: rows.length, won: 0, lost: 0, units: 0, late: { won: 0, lost: 0 }, since };
+  for (const s of rows) {
+    if (s.result === 'Won') { out.won += 1; out.units += s.price > 0 ? s.price / 100 : 100 / -s.price; }
+    else if (s.result === 'Lost') { out.lost += 1; out.units -= 1; }
+    const l = s.later && s.later['60'];
+    if (l && l[2] != null && s.final != null && s.final !== l[1] && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')) out.late[(s.final > l[1]) === (s.side === 'Over') ? 'won' : 'lost'] += 1;
+  }
+  return out;
+}
+
 /** Elapsed game minutes (0-40) from ESPN's period and "MM:SS" clock. Overtime clamps to 40. */
 export function elapsed(period, clock) {
   const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(clock || '');

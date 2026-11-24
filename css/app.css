@@ -80,6 +80,11 @@ h2 { font: 600 23px/1.2 var(--serif); letter-spacing: -0.005em; }
 .figures dd { grid-column: 1; grid-row: 1; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
 .figures dt { grid-column: 2; grid-row: 1; color: var(--sub); font-size: 14px; }
 .figures .brief { display: none; }
+.lead-links { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; font-size: 15px; }
+.lead-links a { color: var(--ink); text-underline-offset: 3px; }
+.lead-links a.key { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; text-decoration: none; }
+.lead-links a.is-primary { color: #fff; }
+.lead-links:not(:has(a:not([hidden]))) { display: none; }
 
 /* ---------- where each game stands ---------- */
 .block { display: flex; flex-direction: column; gap: 14px; }
@@ -207,6 +212,18 @@ h2 { font: 600 23px/1.2 var(--serif); letter-spacing: -0.005em; }
 .feed-now { color: var(--sub); font-size: 14px; }
 .feed-now.is-on { color: var(--ink); font-weight: 600; }
 .sched .feed-all { display: block; color: var(--sub); font-size: 14px; font-weight: 500; }
+/* the watch list: how far each live game's average is toward a signal */
+.watch .when { font-size: 16px; }
+.watch .when.is-over { color: var(--fair); }
+.watch .when.is-under { color: var(--book); }
+.watch .what { display: grid; justify-items: end; gap: 5px; align-self: center; white-space: nowrap; }
+.meter { display: block; width: 64px; height: 6px; background: var(--band); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; }
+.meter .is-over { background: var(--fair); }
+.meter .is-under { background: var(--book); }
+.card-share { display: flex; align-items: center; gap: 14px; }
+#trend-key { display: flex; flex-direction: column; gap: 6px; }
+#trend-key .gloss { order: -1; }
 .sched .feed-all:hover { color: var(--ink); }
 .m-sub { display: none; }
 .hist svg, .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -298,7 +315,7 @@ td.lost { color: var(--sub); }
 .about-row a { color: var(--ink); text-underline-offset: 2px; }
 
 /* Before any line is recorded: no empty figures or charts; the schedule comes straight after the headline */
-#view-board.no-lines .figures, #view-board.no-lines #trend-key, #view-board.no-lines .split > .panel { display: none; }
+#view-board.no-lines #trend-key, #view-board.no-lines .split > .panel { display: none; }
 #view-board.no-lines > .block:not(#feed-block) { order: 2; }
 #view-board.no-lines > #finals { order: 3; }
 #view-board.no-lines .split > #next { order: -1; }
@@ -375,7 +392,10 @@ td.lost { color: var(--sub); }
   .figures > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 10px 0; border-top: 0; }
   .figures dd { font-size: 21px; }
   .figures dt { margin-top: 4px; font-size: 13px; line-height: 1.3; }
-  .figures .full, .figures .fig-count { display: none; }
+  .figures .full { display: none; }
+  #trend-key .gloss { display: none; order: 0; }
+  #trend-key #howto[open] + .gloss { display: flex; }
+  .watch button { padding-left: 14px; padding-right: 14px; }
   .figures .brief { display: inline; }
   .sums { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
   .sums > div { padding: 11px 0; }

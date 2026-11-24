@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=22">
+<link rel="stylesheet" href="css/app.css?v=23">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -75,20 +75,31 @@
       <div class="lead-say">
         <h1 class="headline" id="lead-head">Loading the slate.</h1>
         <p class="standfirst" id="lead-sub"></p>
+        <p class="lead-links"><a class="key is-primary" id="alerts-link" target="_blank" rel="noopener" hidden>Get alerts</a><a href="#/record" id="record-link" hidden>The full record</a></p>
       </div>
-      <dl class="figures">
-        <div><dt><span class="full">points apart, sportsbook and fair, on average</span><span class="brief">points apart, on average</span></dt><dd id="fig-abs">–</dd></div>
-        <div><dt><span class="full">of readings had the sportsbook well under fair</span><span class="brief">book well under fair</span></dt><dd id="fig-low">–</dd></div>
-        <div><dt><span class="full">of readings had the sportsbook well over fair</span><span class="brief">book well over fair</span></dt><dd id="fig-high">–</dd></div>
-        <div class="fig-count"><dt>signals logged on this slate</dt><dd id="fig-sig">–</dd></div>
+      <dl class="figures" id="proof" hidden>
+        <div><dt><span class="full">signals won and lost since <span id="fig-since">the record began</span>, each logged before the result</span><span class="brief">won and lost, every signal</span></dt><dd id="fig-rec">–</dd></div>
+        <div><dt><span class="full">units, at the price quoted when each one fired</span><span class="brief">units at the quoted price</span></dt><dd id="fig-units">–</dd></div>
+        <div><dt><span class="full">the same bets at the line showing a minute later</span><span class="brief">same bets a minute later</span></dt><dd id="fig-late">–</dd></div>
       </dl>
     </div>
     <p class="book-link" id="book-line" hidden></p>
     <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
 
     <div class="block" id="feed-block" hidden>
-      <h2 id="feed-h">Signals on this slate</h2>
+      <h2>Open signals</h2>
       <div class="sched feed" id="feed"></div>
+    </div>
+
+    <div class="block" id="watch-block" hidden>
+      <h2>Closest to a signal</h2>
+      <div class="sched feed watch" id="watch"></div>
+      <p class="note" id="watch-note"></p>
+    </div>
+
+    <div class="block" id="settled-block" hidden>
+      <h2 id="settled-h">Signals, newest first</h2>
+      <div class="sched feed" id="settled"></div>
       <p><button type="button" class="key" id="feed-more" hidden></button></p>
     </div>
 
@@ -101,11 +112,11 @@
         </div>
       </div>
       <div id="trend-key">
-        <p class="gloss"><span><i class="k-line"></i>Three-minute average</span><span><i class="k-thin"></i>Each reading</span><span><i class="k-band"></i>Within 2 deviations: no trade</span><span><i class="k-low"></i>Book low: over side</span><span><i class="k-high"></i>Book high: under side</span><span><i class="k-off"></i>Lopsided game: signals off</span></p>
         <details class="fold" id="howto">
           <summary>How to read these charts</summary>
           <p class="note" id="sigma-note"></p>
         </details>
+        <p class="gloss"><span><i class="k-line"></i>Three-minute average</span><span><i class="k-thin"></i>Each reading</span><span><i class="k-band"></i>Within 2 deviations: no trade</span><span><i class="k-low"></i>Book low: over side</span><span><i class="k-high"></i>Book high: under side</span><span><i class="k-off"></i>Lopsided game: signals off</span></p>
       </div>
       <p class="note" id="table-key" hidden>The three-minute average of fair minus book, in deviations. Dot: now. Bar: its range since recording began.</p>
       <div class="wall" id="wall" hidden></div>
@@ -126,6 +137,7 @@
       <section class="panel">
         <h2 id="hist-title">All readings</h2>
         <p class="note" id="hist-note">The three-minute average at every reading between minute 4 and minute 38.</p>
+        <p class="note" id="hist-figs" hidden></p>
         <div class="hist" id="hist"></div>
       </section>
       <section>
@@ -136,6 +148,7 @@
       <section id="next" hidden>
         <h2>Up next</h2>
         <div class="sched" id="next-rows"></div>
+        <p><button type="button" class="key" id="next-more" hidden></button></p>
       </section>
     </div>
 
@@ -155,6 +168,7 @@
         <div class="side is-home" id="side-home"></div>
       </div>
       <div class="sched feed" id="game-feed" aria-label="Signals in this game" hidden></div>
+      <p class="card-share" id="card-share" hidden><button type="button" class="key" id="share-card">Share this result</button><span class="note" id="card-note" aria-live="polite"></span></p>
       <div class="markets" id="markets" role="group" aria-label="Market" hidden>
         <button type="button" data-market="total" aria-pressed="true">Game total</button>
         <button type="button" data-market="away" aria-pressed="false" id="mk-away">Away</button>
@@ -374,7 +388,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=22"></script>
+<script type="module" src="js/app.js?v=23"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

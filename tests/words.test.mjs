@@ -69,3 +69,12 @@ test('how long ago a signal fired', () => {
   assert.equal(agoWords(150), '2 min ago');
   assert.equal(agoWords(4000), '');
 });
+
+test('with the record beside the headline, the live standfirst says what the record is', async () => {
+  const { boardWords, watchWords } = await import('../js/words.js');
+  const base = { loaded: true, today: true, weekday: 'Tuesday', games: 40, live: 3, ahead: 20, nextTip: '6:00 PM', anyFinal: true, readings: 200, apart: 1.1, firstMinute: 4, afterFact: false, signals: { n: 2, open: 1, won: 1, lost: 0, pushed: 0 } };
+  assert.match(boardWords({ ...base, record: true }).sub, /^Settled so far today: 1 won, 0 lost\. Every signal is logged before the result/);
+  assert.match(boardWords({ ...base, record: false }).sub, /1\.1 points apart/);
+  assert.deepEqual(watchWords({ dev: 1.72, lean: 1.5, book: 142.5, fair: 145.6 }), { side: 'over', on: true, text: 'On watch for the over: book 142.5, fair 145.6' });
+  assert.deepEqual(watchWords({ dev: -1.2, lean: 1.5, book: 150.5, fair: 148.9 }), { side: 'under', on: false, text: 'Leaning to the under: book 150.5, fair 148.9' });
+});

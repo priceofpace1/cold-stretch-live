@@ -24,7 +24,8 @@ export function boardWords(d) {
   if (d.today && d.live) {
     const head = s.open ? `${s.open === 1 ? 'One signal is' : `${s.open} signals are`} open across ${plural(d.live, 'live game')}.`
       : `No signal is open right now. ${d.live === 1 ? 'One game is' : `${d.live} games are`} live.`;
-    return { head, sub: `${done ? `Settled so far today: ${settled(s)}. ` : ''}${apart}` };
+    // With the public record drawn beside the headline, the line under it says what that record is. Without one, how close the two numbers ran.
+    return { head, sub: `${done ? `Settled so far today: ${settled(s)}. ` : ''}${d.record ? 'Every signal is logged before the result and graded on the final score.' : apart}` };
   }
   const when = d.today ? 'today' : `on ${d.weekday}`;
   const head = s.n ? `${plural(s.n, 'signal')} ${when}: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : `No signals ${when}.`;
@@ -47,6 +48,15 @@ export function signalWords(now, limits) {
   // The line named is the one showing now; the row above it carries the line the signal fired at.
   if (now.state === 'on') return { text: `Still on at ${line}${now.quoted ? ` (${price(now.price)})` : ''}`, on: true };
   return { text: `Edge gone at ${line}`, on: false };
+}
+
+/**
+ * A live game nearing a signal, for the board's watch list. d: { dev, lean, book, fair }, dev being the three-minute
+ * average in deviations. Returns { side, on, text }: `on` from the watch tier up.
+ */
+export function watchWords(d) {
+  const side = d.dev > 0 ? 'over' : 'under', on = Math.abs(d.dev) >= d.lean;
+  return { side, on, text: `${on ? 'On watch for the' : 'Leaning to the'} ${side}: book ${d.book.toFixed(1)}, fair ${d.fair.toFixed(1)}` };
 }
 
 /** How long ago a signal fired, for the minutes it is fresh. */
