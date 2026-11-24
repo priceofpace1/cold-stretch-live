@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=26">
+<link rel="stylesheet" href="css/app.css?v=27">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -66,7 +66,7 @@
       <div class="primer-rows">
         <p><b>Two numbers.</b> Orange is the sportsbook’s live total. Blue is the fair number: the score so far plus a normal pace for the time left.</p>
         <p><b>One gap.</b> Each chart follows the gap between them through the game. Inside the shaded band it is too small to mean anything.</p>
-        <p><b>A signal.</b> When the gap holds outside the band for three minutes, at a price that pays, it is logged and graded on the final score.</p>
+        <p><b>A signal.</b> When the three-minute average stays outside the band for two more minutes, at a price that pays, it is logged and graded on the final score.</p>
       </div>
       <p class="primer-foot"><button type="button" class="key is-primary" id="primer-ok">Got it</button><a href="#/about">How it works, in full</a></p>
     </aside>
@@ -88,7 +88,10 @@
 
     <div class="desk" id="desk" hidden>
       <section class="block" id="feed-block">
-        <h2>Bet now</h2>
+        <div class="block-head">
+          <h2>Bet now</h2>
+          <p class="venue" hidden><span class="note">Bet at</span><span class="seg venue-seg" role="group" aria-label="Where you bet"></span></p>
+        </div>
         <div class="sched feed now" id="feed"></div>
         <p class="note" id="feed-note" hidden></p>
       </section>
@@ -169,6 +172,7 @@
         <div class="side is-home" id="side-home"></div>
       </div>
       <div class="sched feed" id="game-feed" aria-label="Signals in this game" hidden></div>
+      <p class="venue" id="game-venue" hidden><span class="note">Bet at</span><span class="seg venue-seg" role="group" aria-label="Where you bet"></span></p>
       <p class="card-share" id="card-share" hidden><button type="button" class="key" id="share-card">Share this result</button><span class="note" id="card-note" aria-live="polite"></span></p>
       <div class="markets" id="markets" role="group" aria-label="Market" hidden>
         <button type="button" data-market="total" aria-pressed="true">Game total</button>
@@ -245,6 +249,7 @@
       <div><dt>Same bets a minute later</dt><dd id="r-late">–</dd></div>
     </dl>
     <p class="note" id="r-sides" hidden></p>
+    <p class="note" id="r-faults" hidden></p>
 
     <div class="block" id="units-block" hidden>
       <h2>Units won or lost, signal by signal</h2>
@@ -382,14 +387,14 @@
 <footer class="wrap">
   <div class="foot">
     <p>Scores and play-by-play come from ESPN. Lines are a sportsbook’s pregame and live numbers as ESPN publishes them. ESPN drops the live line at the final whistle, so a recorder saves it every 30 seconds while games are on.</p>
-    <p>Fair is the current score plus a rest-of-game estimate fitted on 16,086 Division I games, 2022–23 through December 2025. It knows nothing about injuries, foul trouble or who is on the floor. Signals are judged on a three-minute rolling average of the gap, measured in deviations: the usual spread of that average, re-estimated from every completed slate. This is information, not betting advice.</p>
+    <p>Fair is the current score plus a rest-of-game estimate fitted on 16,086 Division I games, 2022–23 through December 2025. It knows nothing about injuries, foul trouble or who is on the floor. Signals are judged on a three-minute rolling average of the gap, measured in deviations: the usual spread of that average, re-estimated from every completed slate. A signal is logged once the average has stayed two deviations out for two minutes. This is information, not betting advice.</p>
     <p class="foot-links" id="foot-links"><a href="#/about">About, method and privacy</a></p>
     <p>For adults of legal betting age where they are. If betting has stopped being fun, call or text 1-800-GAMBLER.</p>
   </div>
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=26"></script>
+<script type="module" src="js/app.js?v=27"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

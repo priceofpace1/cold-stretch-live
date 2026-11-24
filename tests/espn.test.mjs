@@ -45,3 +45,14 @@ test('summary: a score timeline that only moves forward, and the closing line', 
   assert.deepEqual(s.pre, [149.5, 2.5]);
   assert.deepEqual(parseSummary({}).timeline, [{ t: 0, a: 0, h: 0 }]);
 });
+
+test('odds feed: the live line carries the sportsbook’s own bet links, unwrapped and checked', () => {
+  const wrap = (path) => `https://book.example/gateway?wpsrc=413&preurl=${encodeURIComponent(`https://book.example${path}`)}`;
+  const item = (links) => ({ items: [{ provider: { id: '200' }, overUnder: 143.5, spread: -6.5, current: { over: { american: '-115' }, under: { american: '-105' } }, links }] });
+  const links = [{ rel: ['over', 'desktop', 'bets'], href: wrap('/event/1?outcomes=0OU2O14350_1') }, { rel: ['under', 'desktop', 'bets'], href: wrap('/event/1?outcomes=0OU2U14350_3') }, { rel: ['game'], href: wrap('/event/1') }];
+  assert.deepEqual(parseOdds(item(links), ['book.example']).live.links, { over: 'https://book.example/event/1?outcomes=0OU2O14350_1', under: 'https://book.example/event/1?outcomes=0OU2U14350_3' });
+  assert.equal(parseOdds(item(links)).live.links, undefined, 'no host is trusted unless the site names it');
+  assert.equal(parseOdds(item(links), ['other.example']).live.links, undefined);
+  assert.equal(parseOdds(item([{ rel: ['over'], href: 'http://book.example/event/1' }, { rel: ['under'], href: 'not a link' }]), ['book.example']).live.links, undefined, 'only https');
+  assert.equal(parseOdds(item(undefined), ['book.example']).live.total, 143.5);
+});

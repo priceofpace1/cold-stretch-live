@@ -64,7 +64,9 @@ const steady = (gaps, { pre = [150, 0], start = 20, a0 = 30, h0 = 32, price = -1
   const t = start + (i * every) / 60, a = a0 + i, h = h0 + i;
   return [i * every, t, a, h, model.fair(pre, t, a, h).total - gap, a - h, price, price];
 });
-const totals = (rows, finals = null, opts = {}) => model.signalsFor([150, 0], rows, finals, opts).filter((s) => s.market === 'total');
+// The tests below look at each other part of the rule with the hold switched off; the hold has a test of its own.
+const atOnce = (pre, rows, finals, opts = {}) => model.signalsFor(pre, rows, finals, { holdSec: 0, ...opts });
+const totals = (rows, finals = null, opts = {}) => atOnce([150, 0], rows, finals, opts).filter((s) => s.market === 'total');
 const sigma = model.yardstick.total;
 
 test('the signal is judged on a three-minute rolling average, not on one reading', () => {
@@ -113,12 +115,12 @@ test('a steep price cancels a signal; other thresholds, windows and yardsticks c
 
 test('no signals in blowouts, on huge spreads, or outside the window', () => {
   const held = [4, 4, 4, 4, 4, 4];
-  const count = (opts, pre = [150, 0]) => model.signalsFor(pre, steady(held, { ...opts, pre }), null).filter((s) => s.market === 'total').length;
+  const count = (opts, pre = [150, 0]) => atOnce(pre, steady(held, { ...opts, pre }), null).filter((s) => s.market === 'total').length;
   assert.equal(count({}), 1);
   assert.equal(count({ h0: 30 + RULES.blowoutLead }), 0);
   assert.equal(count({}, [150, -RULES.blowoutSpread]), 0);
   assert.equal(count({ start: RULES.lastMinute + 0.5, every: 20 }), 0, 'after the last minute');
-  const early = model.signalsFor([150, 0], steady(held, { start: 0, a0: 0, h0: 0, every: 30 }), null);
+  const early = atOnce([150, 0], steady(held, { start: 0, a0: 0, h0: 0, every: 30 }), null);
   assert.ok(early.every((s) => s.minute >= RULES.firstMinute), 'nothing before the first minute');
 });
 
@@ -143,8 +145,8 @@ test('one fresh reading and a stale one are not an average', () => {
 
 test('signals fire on the game total alone', () => {
   const rows = steady([5, 5, 5, 5, 5]);
-  assert.deepEqual([...new Set(model.signalsFor([150, 0], rows, null).map((s) => s.market))], ['total']);
-  assert.ok(model.signalsFor([150, 0], rows, null, { markets: ['away', 'home'] }).every((s) => s.market !== 'total'), 'team totals only when asked for');
+  assert.deepEqual([...new Set(atOnce([150, 0], rows, null).map((s) => s.market))], ['total']);
+  assert.ok(atOnce([150, 0], rows, null, { markets: ['away', 'home'] }).every((s) => s.market !== 'total'), 'team totals only when asked for');
 });
 
 test('signals stop at minute 34', () => {
@@ -195,7 +197,7 @@ test('an open signal is checked against the quote showing now', () => {
 
 test('lopsided spots are judged apart: off in the record, on in the comparison', () => {
   const held = [4, 4, 4, 4, 4, 4];
-  const shadow = (opts, pre = [150, 0]) => model.signalsFor(pre, steady(held, { ...opts, pre }), null, { lopsided: true }).filter((s) => s.market === 'total');
+  const shadow = (opts, pre = [150, 0]) => atOnce(pre, steady(held, { ...opts, pre }), null, { lopsided: true }).filter((s) => s.market === 'total');
   assert.equal(shadow({}).length, 0, 'a close game never appears in the comparison');
   assert.equal(shadow({ h0: 30 + RULES.blowoutLead }).length, 1, 'a big lead does');
   assert.equal(shadow({}, [150, -RULES.blowoutSpread]).length, 1, 'and so does a wide spread');
@@ -221,4 +223,71 @@ test('gap summary: average distance and the share of readings beyond the thresho
   close(s.mean, -0.5, 'mean');
   close(s.sd, Math.sqrt(46.5 / 7), 'sample standard deviation');
   assert.equal(gapStats([1.2]).sd, null, 'one reading has no spread');
+});
+
+// Readings 30 seconds apart with the book `gap(i)` points under fair; `minute(i)` and `pts(i)` give the feed's clock and score.
+const feed = (n, { minute, pts = (i) => 40 + i, gap = () => 4, shift = () => 0 }) => Array.from({ length: n }, (_, i) => {
+  const t = minute(i), p = pts(i), a = Math.floor(p / 2), h = p - a;
+  return [i * 30, t, a, h, model.fair([150, 0], t, a, h).total - gap(i) + shift(i), a - h, -110, -110];
+});
+const moving = (i) => 10 + i * 0.4;
+
+test('nothing is judged while the score feed is stalled', () => {
+  assert.equal(totals(feed(14, { minute: moving })).length, 1, 'a held gap in running play fires');
+  const stands = (i) => (i < 4 ? moving(i) : moving(3)), still = (i) => 40 + Math.min(i, 3); // the clock and the score stop at the fourth reading
+  assert.equal(totals(feed(14, { minute: stands, pts: still })).length, 1, 'an ordinary stoppage does not block a signal');
+  const late = { minute: stands, pts: still, gap: (i) => (i < 16 ? 0 : 4) }; // the gap opens only after the clock has stood five minutes
+  assert.equal(totals(feed(24, late)).length, 0, 'a clock that has stood five minutes is a stalled feed');
+  assert.equal(totals(feed(24, late), null, { guard: false }).length, 1, 'which the rule without the guard would have judged');
+  assert.equal(totals(feed(14, { minute: stands, pts: (i) => 40 + (i < 4 ? i : 3 + 2 * (i - 3)) })).length, 0, 'points going up while the clock stands');
+  assert.equal(totals(feed(14, { minute: stands, pts: still, shift: (i) => (i === 5 ? -4 : 0) })).length, 0, 'the book moving four points while the clock stands');
+  assert.equal(totals(feed(14, { minute: () => 12.7, pts: () => 41 })).length, 0, 'a game first seen already standing still');
+  const resumes = feed(24, { minute: (i) => (i < 6 ? 12.7 : 12.7 + (i - 5) * 0.4), pts: (i) => 41 + Math.max(0, i - 5) });
+  assert.equal(totals(resumes).length, 1, 'once the clock moves the average starts again and a signal can fire');
+  assert.ok(totals(resumes)[0].at >= 6 * 30 + 150, 'on readings of its own, two and a half minutes after the feed came back');
+  assert.equal(totals(feed(14, { minute: (i) => (i < 2 ? 19.6 + i * 0.4 : 20), pts: (i) => 70 + Math.min(i, 2) })).length, 1, 'halftime is not a stall');
+  const rows = model.track([150, 0], feed(14, { minute: () => 12.7, pts: () => 41 }));
+  assert.ok(rows.slice(1).every((r) => r.stalled && r.markets.total.avgDev == null), 'a stalled reading carries no average');
+  assert.equal(signalNow({ market: 'total', side: 'Over', line: 140 }, rows[5]).why, 'stalled');
+});
+
+test('a reading without a line still keeps the clock moving for the readings after it', () => {
+  const rows = feed(16, { minute: moving }).map((r, i) => (i < 6 ? [r[0], r[1], r[2], r[3], null, null, null, null] : r));
+  assert.equal(totals(rows).length, 1, 'a game followed from before its first live line is not taken as first seen standing');
+  assert.equal(totals(rows.slice(6).map((r) => [r[0], 12.4, 21, 22, r[4], r[5], r[6], r[7]])).length, 0, 'the same readings with a clock that never moves are');
+});
+
+test('the worst line still worth taking moves with the price and stops where the chance no longer clears it', () => {
+  const row = model.track([150, 0], steady([4, 4, 4, 4, 4]))[4], m = row.markets.total;
+  const over = model.goodTo(m, 'Over', -110);
+  assert.ok(over > m.line && over < m.fair, `good to ${over}, between the line ${m.line} and fair ${m.fair}`);
+  assert.ok(Math.abs((((over - m.line) * 2) % 1)) < 1e-9, 'half-point steps from the line showing');
+  assert.ok(model.goodTo(m, 'Over', -150) <= over, 'a worse price leaves less room');
+  assert.equal(model.goodTo(m, 'Under', -110), null, 'nothing to take on the other side');
+  assert.equal(model.goodTo(m, 'Over', null), null);
+});
+
+test('a signal waits for its gap to hold two minutes', () => {
+  const held = (rows, opts = {}) => model.signalsFor([150, 0], rows, null, opts).filter((s) => s.market === 'total');
+  const every30 = { every: 30 };
+  // four points under fair from the first reading: the three-minute average exists at the sixth reading (150 s) and is two
+  // deviations out from then; the signal is logged two minutes later, at the line showing then
+  const rows = steady(Array(14).fill(4), every30);
+  assert.deepEqual(atOnce([150, 0], rows, null).map((s) => s.at), [150]);
+  assert.deepEqual(held(rows).map((s) => s.at), [270]);
+  assert.equal(held(rows)[0].line, rows[9][4], 'the line of the reading it is logged on');
+  assert.deepEqual(held(rows, { holdSec: 180 }).map((s) => s.at), [330], 'a longer hold can be asked for');
+  // the gap closes before the two minutes are up: nothing is logged
+  assert.deepEqual(held(steady([...Array(8).fill(4), ...Array(8).fill(0)], every30)), []);
+  // it closes and opens again: the count starts over
+  const again = steady([...Array(7).fill(4), ...Array(7).fill(-1), ...Array(12).fill(4)], every30);
+  const first = atOnce([150, 0], again, null)[0].at, late = held(again);
+  assert.equal(late.length, 1);
+  assert.ok(late[0].at >= first + 14 * 30, `logged at ${late[0].at}, after the second run has held`);
+  // a hole in the readings starts the count again
+  const hole = steady(Array(22).fill(4), every30).map((r, i) => (i >= 8 ? [r[0] + 200, ...r.slice(1)] : r));
+  assert.ok(held(hole)[0].at >= hole[8][0] + RULES.holdSec - RULES.holdSlackSec, 'the two minutes are counted from after the hole');
+  // a minute apart, as the early slates were recorded: two minutes is the third reading at two deviations
+  const minute = steady(Array(8).fill(4));
+  assert.deepEqual(held(minute).map((s) => s.at - atOnce([150, 0], minute, null)[0].at), [120]);
 });

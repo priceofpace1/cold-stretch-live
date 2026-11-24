@@ -30,6 +30,16 @@ export const SITE = {
   // Empty url: no button is drawn.
   alerts: { label: 'Get alerts', url: '' },
 
+  // Where the bet button on an open signal can send a reader. Each browser remembers its reader's choice.
+  // `book` uses the link the odds feed carries for the exact live total; `hosts` lists where such a link may lead.
+  // A prediction market is opened at the game's own page: {event} is the market's event ticker in lower case.
+  // The Coinbase address has not been confirmed on a phone; if it does not open the game, correct it here.
+  venues: {
+    book: { name: 'Sportsbook', hosts: ['sportsbook.draftkings.com'] },
+    coinbase: { name: 'Coinbase', event: 'https://www.coinbase.com/predictions/event/{event}' },
+    kalshi: { name: 'Kalshi', event: 'https://kalshi.com/markets/kxncaambtotal/mens-college-basketball-total-points/{event}' },
+  },
+
   // Sportsbook referral link, shown beside a live signal. Empty url: no link is drawn and the About page says the
   // site carries no paid links. Take flat per-signup terms only; the disclosure on the About page says so.
   book: { name: '', url: '' },

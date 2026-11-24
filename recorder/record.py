@@ -24,6 +24,12 @@ WINDOW, CARRY = 180, 60   # seconds averaged; how old the reading before the win
 # it. One fresh reading and a stale one carried forward are not a three-minute average: a page that had just opened used
 # to fire on exactly that.
 MIN_READINGS = 3
+# A signal waits for its gap to hold: the average must stay BUY_DEV deviations out, on one side, at every judged reading for
+# HOLD seconds (less HOLD_SLACK, since readings are not exactly 30 seconds apart). A hole of RUN_BREAK seconds in the
+# readings starts the count again. On the slates recorded through November 24, signals that had held two minutes won 22 of
+# 31; the rule's other signals were close to break-even.
+HOLD, HOLD_SLACK, RUN_BREAK = 120, 15, 150
+STALL_SEC, STALL_PTS, STALL_LINE, JUMP_SEC, JUMP_MIN = 300, 4, 4.0, 150, 3.0   # the score feed is taken as stalled past these (see stalled_at)
 # Seconds between stored readings: every 30-second poll is kept, changed or not. A stretch with no readings then always
 # means the line was not being read, never that nothing moved, and halftime is a run of readings like any other.
 EVERY = 25
@@ -39,16 +45,21 @@ SHADOW = ('lopsided', BUY_DEV, WINDOW, None)   # the signal, judged only where i
 # (name, extra arguments for signals_for, filter on the signals it returns)
 IDEAS = (('signal-teams', {'markets': ('away', 'home')}, None),           # team totals, dropped on November 22: implied lines at an assumed price
          ('signal-to-38', {'last': 38}, None),                             # the rule before November 22: signals through minute 38
+         ('signal-unguarded', {'guard': False}, None),                     # the rule before November 25: readings on a stalled score feed judged too
+         ('signal-at-once', {'hold': 0}, None),                            # the rule before November 25: logged the moment the average reaches two deviations
+         ('signal-2.25', {'k': 2.25}, None),                               # the hold at 2.25 deviations
+         ('signal-hold-3', {'hold': 180}, None),                           # a three-minute hold
          ('signal-repeat', {'again': 1.0}, None),                          # let a market fire again after its gap has closed
          ('cold-over', {}, lambda s: s['spot'] == 'Cold spot'),            # the original thesis: the over when scoring is well behind pace
          ('cold-over-lopsided', {'lopsided': True}, lambda s: s['spot'] == 'Cold spot'))
 STAGES = (('all', 0, 41), ('4 to 20', 0, 20), ('20 to 34', 20, 34), ('34 to 38', 34, 41))
-RULES_VERSION = '2026-11-22.1'   # change this whenever a rule, window or variant changes, and add it to RULE_STARTS
+RULES_VERSION = '2026-11-25.1'   # change this whenever a rule, window or variant changes, and add it to RULE_STARTS
 # The first slate each rule was scored live on, oldest first. A slate scored live keeps the signals logged that day for
 # good: when the rule changes they are settled and annotated, never judged again. Slates from before the first entry
 # were recorded before the record began and are judged again under the current rule, after the fact.
 RULE_STARTS = (('20261119', '2026-11-19.2', 'A signal must still carry its edge on the quote showing when it fires, not only on the three-minute average.'),
-               ('20261122', '2026-11-22.1', 'Signals stop at minute 34, not 38: the model knows nothing of fouling and clock play. An average needs three readings of its own covering two and a half minutes, and the recorder keeps a reading every 30 seconds. Team totals are dropped: their lines were implied from the total and spread, and their price was an estimate.'))
+               ('20261122', '2026-11-22.1', 'Signals stop at minute 34, not 38: the model knows nothing of fouling and clock play. An average needs three readings of its own covering two and a half minutes, and the recorder keeps a reading every 30 seconds. Team totals are dropped: their lines were implied from the total and spread, and their price was an estimate.'),
+               ('20261125', '2026-11-25.1', 'No signal on a stalled score feed: when the game clock has stood for five minutes, when four points have gone up or the sportsbook total has moved four points while it stood, or when a game is first seen already standing still. Signals logged on such readings before this date are marked and left out of the headline record. A signal now waits for its gap to hold: the three-minute average must stay two deviations out for a further two minutes, and the signal is logged at the line and price showing then. On the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the others were close to break-even. The rule was installed at about 8 PM Central on November 24, during that slate, and no further signal was logged for it.'))
 def rule_of(date):
     """The rule a slate was scored live under, or None for a slate from before the record began."""
     return next((v for d, v, _ in reversed(RULE_STARTS) if date >= d), None)
@@ -84,16 +95,26 @@ def break_even(price):
     """The win rate an American price needs to break even: -110 needs 52.4%."""
     return -price / (-price + 100) if price < 0 else 100 / (price + 100)
 def units(price): return 100 / -price if price < 0 else price / 100
-def rolled(g, window=WINDOW):
+def rolled(g, window=WINDOW, guard=True):
     """Every reading with a line from minute A0 on, with each market's gap (fair minus book) averaged over the last
     `window` seconds: the readings inside the window plus the one just before it, carried forward. `avg` is None until
     the window holds MIN_READINGS readings reaching back over most of it. window=0 gives the single reading. Markets are
-    total, away, home."""
-    out = []; hist = []; tot, hsp = g['pre']; cover = max(0, window - 30)
+    total, away, home.
+    `stalled` marks a reading taken while the score feed was not following the game (see stalled_at). Such a reading has
+    no average and empties the window, so nothing is judged on it and the average starts again once the feed moves."""
+    out = []; hist = []; tot, hsp = g['pre']; cover = max(0, window - 30); run = None; prev = None
     for ts, t, a, h, bt, bs, op, up in g['r']:
+        # Every reading keeps the clock's history, with a line or without one, so a game followed from the tip is known
+        # to have been moving before its first live line appears.
+        if run is None or abs(t - run['t']) > 1e-6:   # the clock has moved: a new run of readings at one game minute begins
+            run = dict(t=t, ts=ts, pts=a + h, lo=None, hi=None, seen=prev is not None and ts - prev[0] <= JUMP_SEC and -0.5 <= t - prev[1] <= JUMP_MIN)
+        prev = (ts, t)
+        if bt is not None: run['lo'] = bt if run['lo'] is None else min(run['lo'], bt); run['hi'] = bt if run['hi'] is None else max(run['hi'], bt)
         if bt is None or bs is None or t < A0: continue
         f = fair(tot, hsp, t, a, h)
         gaps = (f['fa'] + f['fh'] - bt, f['fa'] - (bt / 2 + bs / 2), f['fh'] - (bt / 2 - bs / 2))
+        if guard and stalled_at(run, ts, t, a + h):
+            hist = []; out.append(dict(ts=ts, t=t, a=a, h=h, bt=bt, bs=bs, op=op, up=up, f=f, gaps=gaps, avg=None, stalled=True)); continue
         hist.append((ts, gaps))
         first = next(i for i, x in enumerate(hist) if ts - x[0] <= window)
         carried = window > 0 and first > 0 and (ts - window) - hist[first - 1][0] <= CARRY
@@ -101,8 +122,20 @@ def rolled(g, window=WINDOW):
         ready = window == 0 or (len(hist) - first >= MIN_READINGS and ts - hist[first][0] >= cover)
         hist = hist[max(0, first - 1):]
         avg = tuple(sum(x[1][i] for x in use) / len(use) for i in range(3)) if ready else None
-        out.append(dict(ts=ts, t=t, a=a, h=h, bt=bt, bs=bs, op=op, up=up, f=f, gaps=gaps, avg=avg))
+        out.append(dict(ts=ts, t=t, a=a, h=h, bt=bt, bs=bs, op=op, up=up, f=f, gaps=gaps, avg=avg, stalled=False))
     return out
+def stalled_at(run, ts, t, pts):
+    """Whether a reading was taken on a score feed that had stopped following the game. `run` is the stretch of readings
+    at one game minute that this reading belongs to: when it began, the points then, and whether the clock was seen to
+    tick into it (`seen`: the reading before was at most JUMP_SEC seconds and JUMP_MIN game minutes earlier), and the
+    lowest and highest sportsbook total read in it. Four signs, none of them at halftime: the clock has stood for
+    STALL_SEC seconds, longer than an ordinary stoppage; STALL_PTS points have gone up while it stood; the sportsbook's
+    total has moved STALL_LINE points while it stood, so the book is following a game the feed is not showing; or the
+    stretch began with no reading just before it, so the game was first seen, or seen again after a hole, already
+    standing still."""
+    if abs(t - 20) < 1e-6 or t >= 40: return False
+    return (ts - run['ts'] >= STALL_SEC or pts - run['pts'] >= STALL_PTS or (run['lo'] is not None and run['hi'] - run['lo'] >= STALL_LINE)
+            or (not run['seen'] and ts > run['ts']))
 def devs_of(g):
     """For every reading where a signal could fire (inside the measuring window, three-minute average available, not a
     lopsided game): the averaged total, away and home gaps in points, and the single-reading total gap. The yardstick and
@@ -136,8 +169,9 @@ def slate_date(now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     return (now - datetime.timedelta(hours=10)).strftime('%Y%m%d')
 
-def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS):
-    """First reading per market and side whose averaged gap sits k deviations from zero, at a price the chance clears.
+def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS, guard=True, hold=HOLD):
+    """First reading per market and side whose averaged gap has sat k deviations from zero for `hold` seconds, at a price
+    the chance clears on that reading. hold=0 fires on the first reading at k, the rule before November 25.
     arm: if given, the reading before it must already have been that many deviations out on the same side.
     Signals are off in lopsided spots (a pregame spread of BLOW_SPREAD or a lead of BLOW_LEAD). lopsided=True judges only
     those spots instead: it is kept beside the record, never in it, to show what leaving them out costs or saves.
@@ -145,15 +179,17 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
     deviations or crossed to the other side. Left out, each market and side fires once a game.
     last: the last elapsed minute a signal may fire at.
     markets: the markets a signal may fire in. The rule is the game total alone; team totals are kept as a comparison.
-    Team totals, where asked for, are implied from the live total and spread and priced at an estimate."""
+    Team totals, where asked for, are implied from the live total and spread and priced at an estimate.
+    guard: False judges readings taken on a stalled score feed as well (see stalled_at), kept as a comparison."""
     yard = yard or YARD
     if not g.get('pre'): return []
-    tot, hsp = g['pre']; out = []; fired = set(); count = {}; fin = g.get('final'); prev_ok = {}; wide = abs(hsp) >= BLOW_SPREAD
+    tot, hsp = g['pre']; out = []; fired = set(); count = {}; fin = g.get('final'); prev_ok = {}; wide = abs(hsp) >= BLOW_SPREAD; since = {}; last_ts = None
     if wide and not lopsided: return []
-    for r in rolled(g, window):
+    for r in rolled(g, window, guard):
         t, a, h, f, bt, bs = r['t'], r['a'], r['h'], r['f'], r['bt'], r['bs']
-        if r['avg'] is None or not (T0 <= t <= last) or (wide or abs(a - h) >= BLOW_LEAD) != lopsided: prev_ok = {}; continue
-        now_ok = {}
+        if r['avg'] is None or not (T0 <= t <= last) or (wide or abs(a - h) >= BLOW_LEAD) != lopsided: prev_ok = {}; since = {}; last_ts = None; continue
+        if last_ts is not None and r['ts'] - last_ts > RUN_BREAK: since = {}   # a hole in the readings: the hold starts again
+        last_ts = r['ts']; now_ok = {}
         mk = [('total', 'Game total', f['fa'] + f['fh'], bt, f['sd_total'], yard['total'], (f['ashort'] + f['hshort']) >= 5, r['op'], r['up'], None if not fin else fin[0] + fin[1]),
               ('away', g['away'] + ' team total', f['fa'], bt / 2 + bs / 2, f['sd_team'], yard['team'], f['ashort'] >= 3, None, None, None if not fin else fin[0]),
               ('home', g['home'] + ' team total', f['fh'], bt / 2 - bs / 2, f['sd_team'], yard['team'], f['hshort'] >= 3, None, None, None if not fin else fin[1])]
@@ -165,12 +201,16 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
             side, p, price = ('Over', p_over, o_price) if gap >= 0 else ('Under', 1 - p_over, u_price)
             if key not in markets: continue
             paid = price if price is not None else -115; size = abs(dev)
+            # since: when this market's average first reached k on this side, in the unbroken run it is in now
+            if size >= k: since[key] = since[key] if since.get(key, (None,))[0] == side else (side, r['ts'])
+            else: since.pop(key, None)
+            held = hold <= 0 or (key in since and r['ts'] - since[key][1] >= hold - HOLD_SLACK)
             if again is not None:   # the gap has closed, or flipped: this market can be bought again
                 for held in ('Over', 'Under'):
                     if (key, held) in fired and (held != side or size < again): fired.discard((key, held))
             if size <= 0 or p < break_even(paid) + MARGIN: continue
             now_ok[(key, side)] = size
-            if size >= k and (arm is None or prev_ok.get((key, side), 0) >= arm) and (key, side) not in fired:
+            if size >= k and held and (arm is None or prev_ok.get((key, side), 0) >= arm) and (key, side) not in fired:
                 fired.add((key, side)); count[(key, side)] = nth = count.get((key, side), 0) + 1
                 res = 'Pending' if final is None else 'Push' if final == line else 'Won' if (final > line) == (side == 'Over') else 'Lost'
                 out.append(dict(id=f"{g['id']}|{key}|{side}" + (f'|{nth}' if nth > 1 else ''), date=g['date'], game=g['id'], matchup=f"{g['away']} at {g['home']}", mkt=key, market=market, side=side,
@@ -249,9 +289,13 @@ class Store:
                 if g and g.get('pre'):
                     if g['id'] not in rows: rows[g['id']] = rolled(g)
                     s['later'] = later_of(g, s, rows[g['id']])
+                    # A signal logged on a reading the guard now rejects stays in the ledger, marked, and out of the headline record.
+                    at = next((r for r in rows[g['id']] if r['ts'] == s['ts']), None)
+                    if at is not None and at['stalled']: s['fault'] = 'stalled'
+                    else: s.pop('fault', None)
             ledger = [s for s in ledger if s['date'] != date] + fresh
             ladder = [r for r in ladder if r['date'] != date]
-            runs = [(rule, [s for g in gl for s in signals_for(g, yard, k, window, arm, rule == SHADOW[0])]) for rule, k, window, arm in VARIANTS + (SHADOW,)]
+            runs = [(rule, [s for g in gl for s in signals_for(g, yard, k, window, arm, rule == SHADOW[0], hold=HOLD if rule in ('signal', SHADOW[0]) else 0)]) for rule, k, window, arm in VARIANTS + (SHADOW,)]   # the comparison rules fire at once, as they always have
             runs += [(rule, [s for g in gl for s in signals_for(g, yard, **extra) if keep is None or keep(s)]) for rule, extra, keep in IDEAS]
             for rule, every in runs:   # what each rule or idea would have done, overall and by stage of the game
                 for stage, lo, hi in STAGES:
@@ -283,7 +327,7 @@ def migrate(out):
         try: os.remove(os.path.join(out, stale))
         except OSError: pass
     store.save()
-    json.dump({'version': RULES_VERSION, 'signal': {'deviations': BUY_DEV, 'average_seconds': WINDOW, 'margin': MARGIN, 'minutes': [T0, T1], 'readings': MIN_READINGS},
+    json.dump({'version': RULES_VERSION, 'signal': {'deviations': BUY_DEV, 'average_seconds': WINDOW, 'hold_seconds': HOLD, 'margin': MARGIN, 'minutes': [T0, T1], 'stalled': {'clock_seconds': STALL_SEC, 'points': STALL_PTS, 'line_points': STALL_LINE}, 'readings': MIN_READINGS},
                'history': [{'since': d, 'version': v, 'change': why} for d, v, why in RULE_STARTS]}, open(path, 'w'))
     return True
 

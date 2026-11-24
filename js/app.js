@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=26';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=26';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=26';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=26';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=26';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=26';
-import { cardModel, drawCard } from './card.js?v=26';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=27';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=27';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=27';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=27';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=27';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords } from './words.js?v=27';
+import { cardModel, drawCard } from './card.js?v=27';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -37,9 +37,19 @@ const S = {
 };
 const isToday = () => S.date === today();
 
+/* ---------- where this reader bets: the venue the bet button opens (js/site.js lists them; the browser remembers) ---------- */
+const VENUES = SITE.venues || {};
+const venueKeys = Object.keys(VENUES).filter((k) => VENUES[k] && VENUES[k].name);
+const VENUE = { key: (() => {
+  const q = new URLSearchParams(location.search).get('venue');
+  try { if (q && venueKeys.includes(q)) localStorage.setItem('csl.venue', q); const saved = localStorage.getItem('csl.venue'); if (venueKeys.includes(saved)) return saved; } catch { if (q && venueKeys.includes(q)) return q; }
+  return venueKeys[0] || null;
+})() };
+const marketVenue = () => VENUE.key && VENUE.key !== 'book'; // a prediction market, priced from the public contract ladder
+
 /* ---------- Coinbase prices (off unless switched on; see js/site.js) ---------- */
 const CB = {
-  on: coinbaseOn(), cfg: SITE.coinbase || {}, ladders: new Map(), titles: null, titlesAt: 0, at: 0, error: null,
+  on: coinbaseOn() || marketVenue(), cfg: SITE.coinbase || {}, ladders: new Map(), titles: null, titlesAt: 0, at: 0, error: null,
   alerts: (() => { try { return localStorage.getItem('csl.alerts') === '1'; } catch { return false; } })(),
   fired: new Set((() => { try { return JSON.parse(sessionStorage.getItem('csl.fired') || '[]'); } catch { return []; } })()),
 };
@@ -109,7 +119,7 @@ async function loadBoard() {
 }
 
 async function loadOdds(g) {
-  const o = parseOdds(await getJSON(urls.odds(g.id), { retries: 0 }));
+  const o = parseOdds(await getJSON(urls.odds(g.id), { retries: 0 }), VENUES.book ? VENUES.book.hosts || [] : []);
   if (o.pre) g.pre = o.pre;
   if (g.state !== 'in') return;
   g.live = o.live ? { ...o.live, at: Date.now() } : null;
@@ -166,6 +176,16 @@ function readingsOf(g) {
 const yard = () => S.yardDay || S.model.yardstick;
 const dev1 = (v) => (v == null || !Number.isFinite(v) ? '–' : signed(v)); // in deviations; the label beside it says so
 
+/**
+ * The same readings with the ones that carry no line put back in their place. A reading without a line cannot be judged,
+ * but it still says where the clock was, and the stalled-feed test needs the clock's whole history.
+ */
+function readingsAll(g) {
+  const rec = (S.recorded.get(g.id) || {}).r || [], lined = readingsOf(g);
+  const bare = rec.concat(g.r).filter((r) => (r[4] == null || r[5] == null) && r[1] < 40);
+  return bare.length ? lined.concat(bare).sort((a, b) => a[0] - b[0]) : lined;
+}
+
 /** A game's readings judged on the rolling average. For a live game with a fresh line, the last row is "now". */
 function tracked(g) {
   const key = `${g.id}:track`;
@@ -173,7 +193,7 @@ function tracked(g) {
   const pre = preOf(g);
   let out = [];
   if (pre && S.model) {
-    const rows = readingsOf(g), last = rows[rows.length - 1], fresh = g.state === 'in' && g.live && Date.now() - g.live.at < RULES.staleMs;
+    const rows = readingsAll(g), last = rows[rows.length - 1], fresh = g.state === 'in' && g.live && Date.now() - g.live.at < RULES.staleMs;
     const now = Math.floor(Date.now() / 1000);
     if (fresh && g.live.total != null && g.live.spread != null && (!last || now - last[0] >= 20)) rows.push([now, g.minute, g.away.pts, g.home.pts, g.live.total, g.live.spread, g.live.over, g.live.under]);
     out = S.model.track(pre, rows.filter((r) => r[1] < 40), { yard: yard() });
@@ -194,17 +214,7 @@ function standing(g) {
     const m = j.markets[k], weight = m.signal === 'buy' ? 3 : m.signal === 'lean' ? 1 : 0;
     if (weight && (!best || weight > best.weight || (weight === best.weight && Math.abs(m.avgDev) > Math.abs(best.avgDev)))) best = { ...m, key: k, weight };
   }
-  return { ...j, pre, fresh, best };
-}
-
-/**
- * Seconds a live game's clock has stood still, by its readings and the scoreboard together (0 at halftime). Past four
- * minutes it is a long review or a score feed that has stopped; either way the fair number is not following the game.
- */
-function stoppedSec(g) {
-  if (g.state !== 'in') return 0;
-  const rows = readingsOf(g), last = rows[rows.length - 1];
-  return last && Math.abs(last[1] - g.minute) < 1e-3 ? clockStoppedSec(rows, Date.now() / 1000) : 0;
+  return { ...j, pre, fresh, best, stalled: !!(j === row && row.stalled) };
 }
 
 /** The status column: a signal, or the plain reason there cannot be one. */
@@ -218,8 +228,7 @@ function word(g, st) {
   if (g.minute < RULES.firstMinute) return [`Before minute ${RULES.firstMinute}`, ''];
   if (g.minute > RULES.lastMinute) return [`Past minute ${RULES.lastMinute}`, ''];
   if (Math.abs(g.away.pts - g.home.pts) >= RULES.blowoutLead) return [`Lead over ${RULES.blowoutLead}`, ''];
-  const stopped = stoppedSec(g);
-  if (stopped >= STOPPED_SEC) return [`Clock stopped ${Math.round(stopped / 60)} min`, ''];
+  if (st.stalled) return ['Score feed stalled', ''];
   if (b) return [`Watch, ${b.side.toLowerCase()}${where}`, 'is-live'];
   return ['In window', 'is-live'];
 }
@@ -285,14 +294,14 @@ function shadowOf(g) {
   const key = `${g.id}:shadow`;
   if (S.memo.has(key)) return S.memo.get(key);
   const pre = preOf(g);
-  const out = pre && S.model ? S.model.signalsFor(pre, readingsOf(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard(), lopsided: true }) : [];
+  const out = pre && S.model ? S.model.signalsFor(pre, readingsAll(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard(), lopsided: true }) : [];
   S.memo.set(key, out);
   return out;
 }
 
 /** A signal from the recorder's ledger, in the shape the pages draw. */
 const fromLedger = (s) => ({ market: s.mkt, side: s.side, at: s.ts, minute: s.t, score: s.score, line: s.line, fair: s.fair, edge: s.edge, dev: s.dev, sigma: s.sigma,
-  chance: s.chance / 100, price: s.price, priced: s.priced === 'Assumed' ? 'assumed' : s.priced, final: s.final, result: s.result });
+  chance: s.chance / 100, price: s.price, priced: s.priced === 'Assumed' ? 'assumed' : s.priced, final: s.final, result: s.result, fault: !!s.fault });
 
 /**
  * A game's signals. On a past slate they are the game-total signals the recorder logged that day: the record does not
@@ -303,7 +312,7 @@ function signalsOf(g) {
   if (S.memo.has(key)) return S.memo.get(key);
   const pre = preOf(g);
   const out = !isToday() && S.ledger.length ? S.ledger.filter((s) => s.date === S.date && String(s.game) === String(g.id) && MARKETS.includes(s.mkt)).sort((a, b) => a.ts - b.ts).map(fromLedger)
-    : pre && S.model && Math.abs(pre[1]) < RULES.blowoutSpread ? S.model.signalsFor(pre, readingsOf(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard() }) : [];
+    : pre && S.model && Math.abs(pre[1]) < RULES.blowoutSpread ? S.model.signalsFor(pre, readingsAll(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard() }) : [];
   S.memo.set(key, out);
   return out;
 }
@@ -400,11 +409,11 @@ function renderLead(all) {
     if (!s.length) continue;
     measured += 1;
     for (const p of s) { gaps.push(p.gap); if (p.avg != null) devs.push(p.avg); }
-    signals += signalsOf(g).length;
+    signals += signalsOf(g).filter((x) => !x.fault).length;
   }
   const st = { ...gapStats(devs, RULES.buyDev), abs: gapStats(gaps).abs }, live = all.filter((g) => g.state === 'in').length, ahead = all.filter((g) => g.state === 'pre').sort((a, b) => new Date(a.start) - new Date(b.start));
   // The headline says what there is to act on; js/words.js holds the wording for every state of a slate.
-  const sig = all.flatMap((g) => signalsOf(g)), count = (r) => sig.filter((x) => x.result === r).length;
+  const sig = all.flatMap((g) => signalsOf(g)).filter((x) => !x.fault), count = (r) => sig.filter((x) => x.result === r).length; // a signal logged on a stalled feed is listed, not counted
   // The record leads the page: what has been logged and graded, in the three figures a newcomer would ask for first.
   const rec = recordOf(S.ledger, RULES.liveSince), graded = rec.won + rec.lost > 0;
   $('#proof').hidden = !graded; $('#record-link').hidden = !graded;
@@ -447,7 +456,7 @@ function renderHistogram(gaps) {
 
 const MARKETS = RULES.markets; // the markets that can signal, and so the only ones the pages follow
 const DONE_SHOWN = 8, FEED_SHOWN = 6, GAME_FEED_SHOWN = 3, LEDGER_SHOWN = 20, UNITS_FROM = 10; // the units chart waits for ten settled signals
-const WATCH_FROM = 1, WATCH_SHOWN = 6, WATCH_OLD_SEC = 600, NEXT_SHOWN = 6, STOPPED_SEC = 240; // the watch list starts a deviation out; a clock still for four minutes is called out
+const WATCH_FROM = 1, WATCH_SHOWN = 6, WATCH_OLD_SEC = 600, NEXT_SHOWN = 6; // the watch list starts a deviation out and takes a reading up to ten minutes old
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /** The latest reading of a live game with a fresh line, or null. An open signal is checked against it. */
@@ -477,18 +486,64 @@ function signalRow(g, s, withGame) {
     const lasted = now.state === 'gone' ? lastedSec(s, tracked(g)) : null; // how long the bet was there to make
     who.append(h('span', `feed-now${w.on ? ' is-on' : ''}`, lasted == null ? w.text : `${w.text} ${lastedWords(lasted)}`));
   }
+  if (s.fault) who.append(h('span', 'feed-now', 'Logged while the score feed was stalled. Not counted in the record.'));
   const cb = live && s.market === 'total' ? cbQuote(g, standing(g)) : null;
   if (cb && cb[s.side]) who.append(h('span', `feed-now cb-now${cb[s.side].edge >= (CB.cfg.margin || 0.05) ? ' is-on' : ''}`, quoteWords(s.side, cb[s.side])));
   const res = !open ? s.result : live && age < NEW_SEC ? 'New' : 'Open';
   b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, res), who, h('span', 'what', s.final == null ? `fair ${f1(s.fair)}` : `final ${s.final}`));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
-  return b;
+  const bet = live && s.market === 'total' ? betRow(g, s) : null;
+  return bet ? [b, bet] : [b];
 }
 
-// A signal is put forward as a bet once its gap has held: the three-minute average two deviations out, on one side, at
-// every reading for HOLD_SEC seconds. On the slates recorded through November 24 the signals that had held two minutes won
-// 22 of 31; the ones that had only just appeared did little better than break even (claude/threshold-persistence-backtest).
-const HOLD_SEC = 120, HOLD_SLACK = 15, RUN_BREAK = 150, RUN_OLD_SEC = 300;
+/**
+ * The bet button under an open signal: one tap to the exact bet at the venue this reader has chosen. At the sportsbook it
+ * shows only while the signal still passes on the quote showing, with the line and price of that quote and the worst
+ * line still worth taking. At a prediction market it names the best contract on the signal's side when one clears its
+ * price and fees, and otherwise links to the game's market without a call.
+ */
+function betRow(g, s) {
+  const v = VENUES[VENUE.key];
+  if (!v) return null;
+  const row = h('div', 'bet-row'), link = (label, href, primary) => { const a = h('a', primary ? 'bet is-go' : 'bet', label); a.href = href; a.target = '_blank'; a.rel = 'noopener'; return a; };
+  if (VENUE.key === 'book') {
+    const side = s.side === 'Over' ? 'over' : 'under', href = g.live && g.live.links ? g.live.links[side] : null, now = nowRow(g);
+    const state = signalNow(s, now), price = g.live ? g.live[side] : null;
+    if (!href || state.state !== 'on' || !now || price == null || now.markets.total.line !== g.live.total) return null;
+    const w = betWords({ key: 'book', name: v.name }, s.side, { line: g.live.total, price, goodTo: S.model.goodTo(now.markets.total, s.side, price) });
+    row.append(link(w.label, href, true), h('span', 'note', w.note));
+    return row;
+  }
+  if (!v.event) return null;
+  const q = cbQuote(g, standing(g));
+  if (!q) { row.append(h('span', 'note', CB.error ? `Could not read ${v.name} prices (${CB.error}).` : CB.at ? `No ${v.name} market found for this game.` : `Loading ${v.name} prices.`)); return row; }
+  const href = safeLink(v.event.replace('{event}', encodeURIComponent(String(q.ladder.event).toLowerCase()))), best = q[s.side];
+  if (!href) return null;
+  if (best && best.edge >= (CB.cfg.margin || 0.05)) row.append(link(betWords({ key: VENUE.key, name: v.name }, s.side, best).label, href, true));
+  else row.append(link(`Open this game on ${v.name}`, href, false), h('span', 'note', best ? 'No contract on this side clears its price and fees right now.' : 'No price on this side right now.'));
+  return row;
+}
+
+/** The choice of venue, drawn wherever a `.venue-seg` waits for it. */
+function renderVenue() {
+  for (const seg of document.querySelectorAll('.venue-seg')) {
+    if (!seg.childElementCount) for (const k of venueKeys) { const b = h('button', '', VENUES[k].name); b.type = 'button'; b.dataset.v = k; b.addEventListener('click', () => setVenue(k)); seg.append(b); }
+    for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.v === VENUE.key));
+    seg.closest('.venue').hidden = venueKeys.length < 2;
+  }
+}
+function setVenue(k) {
+  VENUE.key = k;
+  try { localStorage.setItem('csl.venue', k); } catch { /* the choice lasts for this visit */ }
+  CB.on = coinbaseOn() || marketVenue();
+  render();
+  if (CB.on && !CB.at) refresh(true); // the contract prices have not been read yet
+}
+
+// A signal is logged, and put forward as a bet, once its gap has held: the three-minute average two deviations out, on one
+// side, at every reading for RULES.holdSec seconds (js/model.js). The board counts the same run for itself, to say how long
+// a gap has stood and to keep a signal whose gap has since slipped out of Bet now.
+const HOLD_SEC = RULES.holdSec, HOLD_SLACK = RULES.holdSlackSec, RUN_BREAK = RULES.runBreakSec, RUN_OLD_SEC = 300;
 /**
  * How long the three-minute average has stood two deviations out on one side without a break, up to the newest reading,
  * and where it stands: { sec, dev }, or null when it is not there now. The newest readings of a page just opened have no
@@ -518,7 +573,7 @@ function runOf(g, side) {
 const heldNow = (g, side) => { const run = runOf(g, side); return !!run && run.sec >= HOLD_SEC - HOLD_SLACK; };
 
 /** Whether an open signal is a bet now: its gap has held, and it still passes on the quote showing. Only such a signal asks anything of the reader. */
-const onNow = (g, s) => s.result === 'Pending' && g.state === 'in' && isToday() && signalNow(s, nowRow(g)).state === 'on' && heldNow(g, s.side);
+const onNow = (g, s) => s.result === 'Pending' && !s.fault && g.state === 'in' && isToday() && signalNow(s, nowRow(g)).state === 'on' && heldNow(g, s.side);
 
 /**
  * A signal that can be bet now, as the bet itself: the side, line and price on the quote showing, where the game stands,
@@ -534,7 +589,8 @@ function nowSignalRow(g, s) {
     h('span', 'feed-sub', `Held ${Math.floor(run.sec / 60)} min at ${run.dev.toFixed(1)} deviations. Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`));
   b.append(h('span', 'when', run.sec < HOLD_SEC + NEW_SEC ? 'New' : 'Open'), who, h('span', 'what', `fair ${f1(nowRow(g).markets.total.fair)}`));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
-  return b;
+  const bet = s.market === 'total' ? betRow(g, s) : null;
+  return bet ? [b, bet] : [b];
 }
 
 /** A signal as one line of the slate's log: result, the call, the game, and how it stands or ended. */
@@ -544,11 +600,12 @@ function logRow(g, s) {
   let how = s.final == null ? 'waiting on the final' : `final ${s.final}`;
   if (live) {
     const now = signalNow(s, nowRow(g));
-    how = now.state === 'gone' ? 'edge gone' : now.state === 'none' ? 'no live line' : now.state === 'off' ? (now.why === 'late' ? `past minute ${RULES.lastMinute}` : `lead of ${RULES.blowoutLead} or more`) : 'still on';
+    how = now.state === 'gone' ? 'edge gone' : now.state === 'none' ? 'no live line' : now.state === 'off' ? (now.why === 'late' ? `past minute ${RULES.lastMinute}` : now.why === 'stalled' ? 'score feed stalled' : `lead of ${RULES.blowoutLead} or more`) : 'still on';
     if (now.state === 'on') { const run = runOf(g, s.side); how = !run ? 'gap under 2 now' : run.sec < HOLD_SEC - HOLD_SLACK ? `building, ${Math.floor(run.sec / 60)} of ${HOLD_SEC / 60} min` : 'still on'; }
   }
+  if (s.fault) how = open ? 'stalled feed, not counted' : `${s.result.toLowerCase()}, not counted`; // logged on a stalled score feed, before the rule stopped judging such readings
   const price = s.price == null || s.priced === 'assumed' ? '' : ` at ${s.price > 0 ? '+' : '−'}${Math.abs(Math.round(s.price))}`;
-  b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, open ? 'Open' : s.result),
+  b.append(h('span', `when ${s.fault ? '' : s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, open ? 'Open' : s.fault ? 'Stalled' : s.result),
     h('span', 'call', `${s.side} ${f1(s.line)}${price}`), h('span', 'game', `${g.away.name} at ${g.home.name}, ${clockLabel(s.minute)}`), h('span', 'what', how));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
   return b;
@@ -569,7 +626,7 @@ function renderFeed(all) {
   $('#feed-block').hidden = !liveDay || !now.length; $('#watch-block').hidden = !liveDay; // the headline already says when nothing can be bet
   $('#desk').classList.toggle('no-now', liveDay && !now.length);
   $('#feed').hidden = !now.length;
-  $('#feed').replaceChildren(...now.map(({ g, s }) => nowSignalRow(g, s)));
+  $('#feed').replaceChildren(...now.flatMap(({ g, s }) => nowSignalRow(g, s)));
   $('#feed-note').hidden = true;
   $('#feed-note').textContent = `Nothing to bet right now.${waiting ? ` ${waiting === 1 ? 'One open signal is' : `${waiting} open signals are`} past betting and waiting on a result, in the list below.` : ''}`;
   $('#settled-block').hidden = !rest.length;
@@ -602,7 +659,7 @@ function renderWatch(all) {
     if (!ref) continue;
     measured += 1;
     const m = ref.markets.total, side = m.avgDev > 0 ? 'Over' : 'Under';
-    if (Math.abs(m.avgDev) < WATCH_FROM || stoppedSec(g) >= STOPPED_SEC || signalsOf(g).some((s) => s.market === 'total' && s.side === side && onNow(g, s))) continue; // a bet now is in the list beside this one
+    if (Math.abs(m.avgDev) < WATCH_FROM || st.stalled || signalsOf(g).some((s) => s.market === 'total' && s.side === side && onNow(g, s))) continue; // a bet now is in the list beside this one
     rows.push({ g, m, age: nowSec - ref.ts, run: runOf(g, side) });
   }
   rows.sort((a, b) => Math.abs(b.m.avgDev) - Math.abs(a.m.avgDev));
@@ -619,7 +676,7 @@ function renderWatch(all) {
     b.addEventListener('click', () => go(gameHash(g.id, 'total')));
     return b;
   }));
-  const held = ` A signal moves to Bet now once its gap has held ${HOLD_SEC / 60} minutes. The record still logs it when it first appears, until the rule changes between slates.`;
+  const held = ` A signal is logged, and moves to Bet now, once its gap has held ${HOLD_SEC / 60} minutes.`;
   $('#watch-note').textContent = (rows.length ? `The three-minute average in deviations, and how far it is toward the ${RULES.buyDev} a signal needs. From ${RULES.leanDev} a game is on watch.`
     : !inPlay ? 'No live game with a line is inside the signal window right now.'
       : !measured ? 'The averages are still forming. They need about three minutes of readings.'
@@ -690,7 +747,11 @@ function sentence(g, st, k, book) {
   const now = `The sportsbook has ${name} at ${f1(m.line)}${k === 'total' ? '' : ' (implied)'}. Fair is ${f1(m.fair)}, so the book is ${low(m.edge)} right now.`;
   if (m.avgDev == null) return [`${now} The three-minute average starts once the line has been followed for three minutes.`, ''];
   const lead = `${now} Over the last three minutes it has averaged ${low(m.avgEdge)}: ${Math.abs(m.avgDev).toFixed(1)} deviations.`;
-  if (m.signal === 'buy') return [`${lead} The ${m.side.toLowerCase()} has a ${Math.round(m.chance * 100)}% chance. Signal: ${m.side.toLowerCase()}.`, m.side === 'Over' ? 'is-over' : 'is-under'];
+  if (m.signal === 'buy') {
+    const run = k === 'total' ? runOf(g, m.side) : null, tone = m.side === 'Over' ? 'is-over' : 'is-under';
+    if (run && run.sec < HOLD_SEC - HOLD_SLACK) return [`${lead} It has been there ${Math.floor(run.sec / 60)} of the ${HOLD_SEC / 60} minutes a signal needs.`, tone];
+    return [`${lead} The ${m.side.toLowerCase()} has a ${Math.round(m.chance * 100)}% chance. Signal: ${m.side.toLowerCase()}.`, tone];
+  }
   if (m.signal === 'lean') return [`${lead} On watch: a signal needs ${RULES.buyDev}.`, ''];
   if (!st.eligible) {
     const why = g.minute < RULES.firstMinute ? `before minute ${RULES.firstMinute}` : g.minute > RULES.lastMinute ? `after minute ${RULES.lastMinute}` : Math.abs(st.pre[1]) >= RULES.blowoutSpread ? `on a ${RULES.blowoutSpread}-point spread` : `at a ${RULES.blowoutLead}-point lead`;
@@ -724,14 +785,15 @@ function renderGame() {
   // The signals lead the page: what fired, where, and for an open one whether it can still be bet.
   const lead = signalsOf(g).map((s) => ({ g, s })).sort(openFirst);
   const top = lead.slice(0, Math.max(GAME_FEED_SHOWN, lead.filter((x) => x.s.result === 'Pending').length)); // every open one, then the newest
-  $('#game-feed').replaceChildren(...top.map(({ s }) => signalRow(g, s, false)));
+  $('#game-feed').replaceChildren(...top.flatMap(({ s }) => signalRow(g, s, false)));
+  $('#game-venue').hidden = venueKeys.length < 2 || !(g.state === 'in' && lead.some(({ s }) => s.result === 'Pending'));
   if (top.length < lead.length) {
     const more = h('button', 'feed-all', `All ${lead.length} signals in this game, in full`); more.type = 'button';
     more.addEventListener('click', () => $('#sig-block').scrollIntoView({ block: 'start' }));
     $('#game-feed').append(more);
   }
   $('#game-feed').hidden = !lead.length;
-  $('#card-share').hidden = !(g.state === 'post' && lead.some(({ s }) => s.market === 'total' && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')));
+  $('#card-share').hidden = !(g.state === 'post' && lead.some(({ s }) => s.market === 'total' && !s.fault && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')));
   if (S.cardFor !== g.id) { S.cardFor = g.id; $('#card-note').textContent = ''; }
   renderBookLink(g, st);
   renderCoinbase(g, st);
@@ -805,7 +867,7 @@ function renderGame() {
   const label = (s) => (s.market === 'total' ? 'Game total' : `${g[s.market].name} team total`);
   const sigRow = (s) => {
     const tr = document.createElement('tr');
-    for (const [v, c] of [[label(s)], [s.side], [clockLabel(s.minute)], [s.score], [f1(s.line), 'r'], [f1(s.fair), 'r'], [signed(s.dev), 'r'], [`${Math.round(s.chance * 100)}%`, 'r'], [s.final == null ? '' : s.final, 'r'], [s.result, s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : '']]) tr.append(h('td', c || '', v));
+    for (const [v, c] of [[label(s)], [s.side], [clockLabel(s.minute)], [s.score], [f1(s.line), 'r'], [f1(s.fair), 'r'], [signed(s.dev), 'r'], [`${Math.round(s.chance * 100)}%`, 'r'], [s.final == null ? '' : s.final, 'r'], [s.fault ? `${s.result}, not counted` : s.result, s.fault ? 'quiet' : s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : '']]) tr.append(h('td', c || '', v));
     forPhone(tr, [0, 4, 8, 9], `${s.side}, ${clockLabel(s.minute)}`);
     return tr;
   };
@@ -824,7 +886,7 @@ function renderGame() {
 
 /* ---------- record ---------- */
 const RULE_LABELS = {
-  signal: `Three-minute average at ${RULES.buyDev} deviations: the signal`,
+  signal: `Three-minute average at ${RULES.buyDev} deviations, held ${RULES.holdSec / 60} minutes: the signal`,
   'avg3-1.5': 'Three-minute average at 1.5',
   'avg3-2.5': 'Three-minute average at 2.5',
   'avg3-3': 'Three-minute average at 3',
@@ -841,6 +903,10 @@ const IDEA_LABELS = {
   'signal-totals': 'Game totals only',
   'signal-teams': 'Team totals at estimated prices, dropped on November 22',
   'signal-to-38': 'Carrying on to minute 38, the rule until November 22',
+  'signal-unguarded': 'Judging readings on a stalled score feed too, the rule until November 25',
+  'signal-at-once': 'Logged the moment the gap appears, the rule until November 25',
+  'signal-2.25': 'Needing 2.25 deviations',
+  'signal-hold-3': 'Held three minutes, not two',
   'signal-repeat': 'Firing again after the gap closes',
   'cold-over': 'Cold-stretch overs: scoring well behind pace',
   'cold-over-lopsided': 'Cold-stretch overs in lopsided games',
@@ -854,7 +920,7 @@ function renderRecord() {
   // The record is game totals, the one market with a posted line and price. Team totals were logged until November 21 at
   // an estimated price; they are kept as history and counted apart.
   const gameTotal = (s) => (s.mkt || '') === 'total' || s.market === 'Game total';
-  const liveAll = L.filter((s) => s.date >= RULES.liveSince), live = liveAll.filter(gameTotal), retired = liveAll.filter((s) => !gameTotal(s)), back = L.filter((s) => s.date < RULES.liveSince);
+  const liveAll = L.filter((s) => s.date >= RULES.liveSince), faults = liveAll.filter((s) => gameTotal(s) && s.fault), live = liveAll.filter((s) => gameTotal(s) && !s.fault), retired = liveAll.filter((s) => !gameTotal(s)), back = L.filter((s) => s.date < RULES.liveSince);
   const grade = (final, line, side) => (final === line ? 'Push' : (final > line) === (side === 'Over') ? 'Won' : 'Lost');
   const done = live.filter((s) => (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push') && s.final != null);
   const settled = live.filter((s) => s.result === 'Won' || s.result === 'Lost'), units = settled.reduce((u, s) => u + pay(s), 0);
@@ -876,6 +942,10 @@ function renderRecord() {
   const sides = [['Overs', tally(live.filter((s) => s.side === 'Over'))], ['Unders', tally(live.filter((s) => s.side === 'Under'))]].filter((x) => x[1] !== '–');
   $('#r-sides').textContent = sides.map((x) => `${x[0]} ${x[1]}.`).join(' ') + (net.size - ahead - behind ? ` ${plural(net.size - ahead - behind, 'game')} level.` : '');
   $('#r-sides').hidden = !sides.length;
+  // Signals logged on a stalled score feed, before the rule stopped judging such readings, are kept and shown but not counted.
+  const fWon = faults.filter((s) => s.result === 'Won').length, fLost = faults.filter((s) => s.result === 'Lost').length, fOpen = faults.filter((s) => s.result === 'Pending').length;
+  $('#r-faults').hidden = !faults.length;
+  $('#r-faults').textContent = faults.length ? `${plural(faults.length, 'signal')} logged while the score feed was stalled ${faults.length === 1 ? 'is' : 'are'} left out of every figure on this page (${fWon} won, ${fLost} lost${fOpen ? `, ${fOpen} open` : ''}). ${faults.length === 1 ? 'It is' : 'They are'} in the ledger below, marked not counted.` : '';
   // Units signal by signal, in the order they fired.
   const run = live.filter((s) => s.result === 'Won' || s.result === 'Lost' || s.result === 'Push').sort((a, b) => a.ts - b.ts);
   let all = 0;
@@ -940,8 +1010,8 @@ function renderRecord() {
   const settledNow = (s) => s.result === 'Won' || s.result === 'Lost' || s.result === 'Push';
   const F = L.filter((s) => (S.led.result === 'all' || (S.led.result === 'open' ? !settledNow(s) : s.result === S.led.result)) && (S.led.market === 'all' || (S.led.market === 'total') === isTotal(s)));
   for (const [id, k] of [['led-result', 'result'], ['led-market', 'market']]) for (const b of document.querySelectorAll(`#${id} button`)) b.setAttribute('aria-pressed', String(b.dataset.v === S.led[k]));
-  const fw = F.filter((s) => s.result === 'Won').length, fl = F.filter((s) => s.result === 'Lost').length, fp = F.filter((s) => s.result === 'Push').length, fo = F.length - fw - fl - fp;
-  $('#ledger-count').textContent = F.length ? `${plural(F.length, 'signal')}: ${fw} won, ${fl} lost${fp ? `, ${fp} pushed` : ''}${fo ? `, ${fo} open` : ''}.` : '';
+  const C = F.filter((s) => !s.fault), fw = C.filter((s) => s.result === 'Won').length, fl = C.filter((s) => s.result === 'Lost').length, fp = C.filter((s) => s.result === 'Push').length, fo = C.length - fw - fl - fp;
+  $('#ledger-count').textContent = F.length ? `${plural(C.length, 'signal')}: ${fw} won, ${fl} lost${fp ? `, ${fp} pushed` : ''}${fo ? `, ${fo} open` : ''}${F.length > C.length ? `, and ${F.length - C.length} not counted` : ''}.` : '';
   $('#ledger-count').hidden = !F.length;
   const ledgerShown = S.allLedger ? F : F.slice(0, LEDGER_SHOWN);
   $('#ledger-more').hidden = ledgerShown.length === F.length;
@@ -949,7 +1019,7 @@ function renderRecord() {
   $('#ledger-rows').replaceChildren(...ledgerShown.map((s) => {
     const tr = document.createElement('tr'); tr.tabIndex = 0;
     const price = `${s.price > 0 ? '+' : ''}${s.price}${s.priced === 'Assumed' ? ' est.' : ''}`;
-    for (const [v, c] of [[dayLabel(s.date).split(', ').pop()], [s.matchup], [s.market], [s.side], [clockLabel(s.t)], [s.score], [f1(s.line), 'r'], [price, 'r'], [f1(s.fair), 'r'], [s.dev == null ? '–' : signed(s.dev), 'r'], [`${s.chance}%`, 'r'], [s.final == null ? '' : s.final, 'r'], [s.result, s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : '']]) tr.append(h('td', c || '', v));
+    for (const [v, c] of [[dayLabel(s.date).split(', ').pop()], [s.matchup], [s.market], [s.side], [clockLabel(s.t)], [s.score], [f1(s.line), 'r'], [price, 'r'], [f1(s.fair), 'r'], [s.dev == null ? '–' : signed(s.dev), 'r'], [`${s.chance}%`, 'r'], [s.final == null ? '' : s.final, 'r'], [s.fault ? `${s.result}, not counted` : s.result, s.fault ? 'quiet' : s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : '']]) tr.append(h('td', c || '', v));
     forPhone(tr, [1, 6, 11, 12], `${s.market}, ${s.side.toLowerCase()}, ${dayLabel(s.date).split(', ').pop()}`);
     const open = () => go(gameHash(s.game, s.mkt, s.date));
     tr.addEventListener('click', open); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
@@ -1085,7 +1155,7 @@ function renderAbout() {
       p('It knows nothing about injuries, foul trouble or who is on the floor.')),
     row('What counts as a signal',
       p(`One reading is mostly timing: a basket moves fair before the sportsbook reprices. So the gap is averaged over three minutes and measured in deviations, the usual size of that average on earlier slates, about ${dev} points for a game total.`),
-      p(`A signal is the first time the average sits ${RULES.buyDev} or more deviations out between minute ${RULES.firstMinute} and minute ${RULES.lastMinute}, at a price the model’s chance beats by ${Math.round(RULES.margin * 100)} points. Signals are off when the pregame spread is ${RULES.blowoutSpread} or more or the lead is ${RULES.blowoutLead} or more, because the fair number runs high in those games.`)),
+      p(`A signal is logged once the average has stayed ${RULES.buyDev} or more deviations out for ${RULES.holdSec / 60} minutes, between minute ${RULES.firstMinute} and minute ${RULES.lastMinute}, at a price the model’s chance beats by ${Math.round(RULES.margin * 100)} points on the quote showing then. A gap that has only just appeared is noise more often than not: on the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the ones that had not were close to break-even. Signals are off when the pregame spread is ${RULES.blowoutSpread} or more or the lead is ${RULES.blowoutLead} or more, because the fair number runs high in those games.`)),
     row('The record',
       p('Every signal is logged when it fires and settled on the final score, wins and losses alike. Nothing is taken out afterwards. Signals are on the game total and settled at the sportsbook’s live price. Team totals were tracked until November 21 at an estimated price and then dropped; the ones already logged stay on the Record page, counted apart.'),
       p(`The record is short. Signals have been scored live since ${longDay(RULES.liveSince)}, and a few weeks of results prove very little. `, link('See the record', '#/record'), '.')),
@@ -1102,6 +1172,7 @@ function renderAbout() {
       p(`Scores, lines and the record are fetched straight from ESPN and GitHub, which see your connection the way any site you visit does.${LIST ? ' If you join the email list, your address is held by the mailing service and used for that list only.' : ''}`)),
     row('How the site is paid for',
       p(BOOK ? `Links to ${BOOK.name} are paid referrals: the site receives a flat fee when a new customer opens an account through one. It is never paid a share of anyone’s losses, and no sportsbook sees or shapes the model, the signals or the record.` : 'The site carries no advertising and no paid links.'),
+      p('The bet button under an open signal opens the sportsbook or market you choose, at the bet it names. The site is not paid for those links and does not know whether you bet.'),
       ...(SUPPORT ? [p('Readers who find it useful can chip in through the support link at the foot of the page. It buys nothing extra: everything here stays open to everyone.')] : [])),
   );
   if (mail) rows.append(row('Contact', p('Questions and corrections: ', link(mail, `mailto:${mail}`), '.')));
@@ -1157,7 +1228,7 @@ for (const b of document.querySelectorAll('[data-share]')) {
  * The phone's share sheet takes the picture where it can; elsewhere it is saved as a file.
  */
 const cardFor = (g) => cardModel({ site: SITE.name, host: location.host, day: dayLabel(S.date), away: g.away.name, home: g.home.name, awayPts: g.away.pts, homePts: g.home.pts,
-  signals: signalsOf(g).filter((s) => s.market === 'total'), points: inWindow(g), record: recordOf(S.ledger, RULES.liveSince), sinceLabel: sinceLabel(), clockLabel }); // the lines end where signals stop, as every chart on the site does
+  signals: signalsOf(g).filter((s) => s.market === 'total' && !s.fault), points: inWindow(g), record: recordOf(S.ledger, RULES.liveSince), sinceLabel: sinceLabel(), clockLabel }); // the lines end where signals stop, as every chart on the site does
 async function shareCard() {
   const g = S.games.get(S.sel), note = $('#card-note'), m = g ? cardFor(g) : null;
   if (!m) return;
@@ -1196,7 +1267,7 @@ function renderTitle() {
   const title = open ? `(${open}) ${SITE.name}` : SITE.name;
   if (document.title !== title) document.title = title;
 }
-function render() { S.memo.clear(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); }
+function render() { S.memo.clear(); renderVenue(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); }
 
 async function refresh(force) {
   if (S.busy && !force) return;
@@ -1250,7 +1321,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=26')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=27')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();
