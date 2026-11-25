@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=23';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=23';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=23';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=23';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=23';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=23';
-import { cardModel, drawCard } from './card.js?v=23';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=24';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=24';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=24';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=24';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=24';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=24';
+import { cardModel, drawCard } from './card.js?v=24';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -419,7 +419,7 @@ function renderLead(all) {
     loaded: !!S.scoresAt, today: isToday(), weekday: new Date(toUTC(S.date)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
     games: all.length, live, ahead: ahead.length, nextTip: ahead.length ? timeLabel(ahead[0].start) : '', anyFinal: all.some((g) => g.state === 'post'),
     readings: st.n, apart: st.abs || 0, firstMinute: RULES.firstMinute, afterFact: S.date < RULES.liveSince, record: graded,
-    signals: { n: sig.length, open: count('Pending'), won: count('Won'), lost: count('Lost'), pushed: count('Push') },
+    signals: { n: sig.length, open: count('Pending'), on: all.reduce((n, g) => n + signalsOf(g).filter((x) => onNow(g, x)).length, 0), won: count('Won'), lost: count('Lost'), pushed: count('Push') },
   });
   $('#view-board').classList.toggle('no-lines', !st.n); // before any line is recorded the schedule leads and the empty figures step aside
   $('#lead-head').textContent = head;
@@ -485,25 +485,67 @@ function signalRow(g, s, withGame) {
   return b;
 }
 
+/** Whether an open signal can still be bet on the quote showing now. Only such a signal asks anything of the reader. */
+const onNow = (g, s) => s.result === 'Pending' && g.state === 'in' && isToday() && signalNow(s, nowRow(g)).state === 'on';
+
 /**
- * The slate's signals in two lists. Open ones lead the page, because they are what there is to act on; the watch list
- * sits between; the settled ones follow, newest first.
+ * A signal that can be bet now, as the bet itself: the side, line and price on the quote showing, where the game stands,
+ * and where the signal was logged.
+ */
+function nowSignalRow(g, s) {
+  const b = h('button'); b.type = 'button';
+  const now = signalNow(s, nowRow(g)), age = Date.now() / 1000 - s.at, who = h('span', 'who');
+  const price = now.quoted ? ` at ${now.price > 0 ? '+' : '−'}${Math.abs(Math.round(now.price))}` : '';
+  const ago = agoWords(age), from = now.line !== s.line ? ` at ${f1(s.line)}` : '';
+  who.append(h('span', 'bet-call', `${s.side} ${f1(now.line)}${price}`),
+    h('span', 'feed-sub', `${g.away.name} at ${g.home.name}, ${clockText(g)}, ${g.away.pts}–${g.home.pts}`),
+    h('span', 'feed-sub', `Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`));
+  b.append(h('span', 'when', age < NEW_SEC ? 'New' : 'Open'), who, h('span', 'what', `fair ${f1(nowRow(g).markets.total.fair)}`));
+  b.addEventListener('click', () => go(gameHash(g.id, 'total')));
+  return b;
+}
+
+/** A signal as one line of the slate's log: result, the call, the game, and how it stands or ended. */
+function logRow(g, s) {
+  const b = h('button'); b.type = 'button';
+  const open = s.result === 'Pending', live = open && g.state === 'in' && isToday();
+  let how = s.final == null ? 'waiting on the final' : `final ${s.final}`;
+  if (live) {
+    const now = signalNow(s, nowRow(g));
+    how = now.state === 'gone' ? 'edge gone' : now.state === 'none' ? 'no live line' : now.state === 'off' ? (now.why === 'late' ? `past minute ${RULES.lastMinute}` : `lead of ${RULES.blowoutLead} or more`) : 'still on';
+  }
+  const price = s.price == null || s.priced === 'assumed' ? '' : ` at ${s.price > 0 ? '+' : '−'}${Math.abs(Math.round(s.price))}`;
+  b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, open ? 'Open' : s.result),
+    h('span', 'call', `${s.side} ${f1(s.line)}${price}`), h('span', 'game', `${g.away.name} at ${g.home.name}, ${clockLabel(s.minute)}`), h('span', 'what', how));
+  b.addEventListener('click', () => go(gameHash(g.id, 'total')));
+  return b;
+}
+
+/**
+ * The slate's signals. While games are live, the ones that can still be bet stand alone under "Bet now"; every other
+ * signal, open or settled, is a line in the log below, so nothing that cannot be acted on takes up the first screen.
  */
 function renderFeed(all) {
   const rows = [];
   for (const g of all) for (const s of signalsOf(g)) rows.push({ g, s });
   rows.sort(openFirst);
-  const open = rows.filter((r) => r.s.result === 'Pending'), settled = rows.filter((r) => r.s.result !== 'Pending');
-  $('#feed-block').hidden = !open.length || S.only;
-  $('#feed').replaceChildren(...($('#feed-block').hidden ? [] : open.map(({ g, s }) => signalRow(g, s, true))));
-  $('#settled-block').hidden = !settled.length || S.only;
-  if ($('#settled-block').hidden) { $('#settled').replaceChildren(); return; }
-  $('#settled-h').textContent = open.length || (isToday() && all.some((g) => g.state === 'in')) ? 'Settled on this slate' : 'Signals, newest first'; // the headline carries the count and the record
-  const shown = S.allFeed ? settled : settled.slice(0, FEED_SHOWN);
-  $('#settled').replaceChildren(...shown.map(({ g, s }) => signalRow(g, s, true)));
+  const liveDay = isToday() && all.some((g) => g.state === 'in');
+  const now = rows.filter(({ g, s }) => onNow(g, s)), rest = rows.filter(({ g, s }) => !onNow(g, s)), waiting = rest.filter((r) => r.s.result === 'Pending').length;
+  $('#desk').hidden = !liveDay && !rest.length;
+  $('#desk').classList.toggle('is-past', !liveDay); // a finished or coming slate has only its log
+  $('#feed-block').hidden = !liveDay; $('#watch-block').hidden = !liveDay;
+  $('#feed').hidden = !now.length;
+  $('#feed').replaceChildren(...now.map(({ g, s }) => nowSignalRow(g, s)));
+  $('#feed-note').hidden = !!now.length;
+  $('#feed-note').textContent = `Nothing to bet right now.${waiting ? ` ${waiting === 1 ? 'One open signal is' : `${waiting} open signals are`} past betting and waiting on a result, in the list below.` : ''}`;
+  $('#settled-block').hidden = !rest.length;
+  if (!rest.length) { $('#settled').replaceChildren(); return; }
+  $('#settled-h').textContent = liveDay ? 'Logged today' : 'Signals, newest first'; // the headline carries the count and the record
+  const shown = S.allFeed ? rest : rest.slice(0, Math.max(FEED_SHOWN, waiting));
+  $('#settled').replaceChildren(...shown.map(({ g, s }) => logRow(g, s)));
   const moreBtn = $('#feed-more');
-  moreBtn.hidden = shown.length === settled.length;
-  moreBtn.textContent = `Show all ${settled.length} settled signals`;
+  moreBtn.hidden = shown.length === rest.length;
+  moreBtn.textContent = `Show all ${rest.length} signals`;
 }
 
 /**
@@ -530,14 +572,12 @@ function renderWatch(all) {
     rows.push({ g, m, age: nowSec - ref.ts });
   }
   rows.sort((a, b) => Math.abs(b.m.avgDev) - Math.abs(a.m.avgDev));
-  $('#watch-block').hidden = !inPlay;
-  if (!inPlay) return;
   $('#watch').hidden = !rows.length;
   $('#watch').replaceChildren(...rows.slice(0, WATCH_SHOWN).map(({ g, m, age }) => {
     const b = h('button'); b.type = 'button';
     const w = watchWords({ dev: m.avgDev, lean: RULES.leanDev, book: m.line, fair: m.fair }), tone = m.avgDev > 0 ? 'is-over' : 'is-under';
     const who = h('span', 'who'), what = h('span', 'what'), meter = h('span', 'meter'), fill = h('i', tone);
-    who.append(h('span', '', `${g.away.name} at ${g.home.name}`), h('span', 'feed-sub', `${clockText(g)}, ${g.away.pts}–${g.home.pts}${age >= 90 ? `, as of ${Math.round(age / 60)} min ago` : ''}`), h('span', `feed-now${w.on ? ' is-on' : ''}`, w.text));
+    who.append(h('span', '', `${g.away.name} at ${g.home.name}, ${clockText(g)}, ${g.away.pts}–${g.home.pts}${age >= 90 ? `, as of ${Math.round(age / 60)} min ago` : ''}`), h('span', `feed-now${w.on ? ' is-on' : ''}`, w.text));
     fill.style.width = `${Math.min(100, Math.round((Math.abs(m.avgDev) / RULES.buyDev) * 100))}%`;
     meter.append(fill); meter.setAttribute('aria-hidden', 'true');
     what.append(meter, document.createTextNode(`of ${RULES.buyDev}`));
@@ -546,7 +586,8 @@ function renderWatch(all) {
     return b;
   }));
   $('#watch-note').textContent = rows.length ? `The three-minute average in deviations, and how far it is toward the ${RULES.buyDev} a signal needs. From ${RULES.leanDev} a game is on watch.`
-    : !measured ? 'The averages are still forming. They need about three minutes of readings.'
+    : !inPlay ? 'No live game with a line is inside the signal window right now.'
+      : !measured ? 'The averages are still forming. They need about three minutes of readings.'
       : `Nothing is within one deviation of a signal across ${plural(measured, 'live game')} with a line in the window.`;
 }
 
@@ -1114,9 +1155,9 @@ function renderPulse() {
   const rec = mins == null || !isToday() || !live ? '' : mins > 12 ? `, recorder last saved ${mins} min ago` : `, recorder ${mins} min ago`;
   p.replaceChildren(h('b', '', isToday() ? `${live} live` : dayLabel(S.date)), document.createTextNode(`, scores ${age}s ago`), h('span', 'wide', rec));
 }
-/** The browser tab carries the number of open signals, so a tab left in the background still says when one fires. */
+/** The browser tab carries the number of signals that can be bet now, so a tab left in the background still says when one fires. */
 function renderTitle() {
-  const open = isToday() ? [...S.games.values()].filter((g) => g.state === 'in').reduce((n, g) => n + signalsOf(g).filter((s) => s.result === 'Pending').length, 0) : 0;
+  const open = isToday() ? [...S.games.values()].reduce((n, g) => n + signalsOf(g).filter((s) => onNow(g, s)).length, 0) : 0;
   const title = open ? `(${open}) ${SITE.name}` : SITE.name;
   if (document.title !== title) document.title = title;
 }
@@ -1174,7 +1215,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=23')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=24')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

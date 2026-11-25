@@ -5,7 +5,7 @@ const settled = (s) => `${s.won} won, ${s.lost} lost${s.pushed ? `, ${s.pushed} 
 
 /**
  * d: { loaded, today, weekday, games, live, ahead, nextTip, anyFinal, readings, apart, firstMinute, afterFact,
- *      signals: { n, open, won, lost, pushed } }
+ *      signals: { n, open, on, won, lost, pushed } } (on: open signals that still pass on the quote showing)
  * The headline says what there is to act on; the standfirst says what a signal is and how close the two numbers ran.
  */
 export function boardWords(d) {
@@ -22,10 +22,13 @@ export function boardWords(d) {
   const apart = `Across ${plural(d.readings, 'reading')} the sportsbook and the fair number have been ${d.apart.toFixed(1)} points apart on average.`;
   const done = s.won + s.lost + s.pushed;
   if (d.today && d.live) {
-    const head = s.open ? `${s.open === 1 ? 'One signal is' : `${s.open} signals are`} open across ${plural(d.live, 'live game')}.`
-      : `No signal is open right now. ${d.live === 1 ? 'One game is' : `${d.live} games are`} live.`;
-    // With the public record drawn beside the headline, the line under it says what that record is. Without one, how close the two numbers ran.
-    return { head, sub: `${done ? `Settled so far today: ${settled(s)}. ` : ''}${d.record ? 'Every signal is logged before the result and graded on the final score.' : apart}` };
+    // What can be done right now leads. A signal whose edge has gone is still open, but there is nothing to do about it.
+    const on = s.on || 0, waiting = s.open - on, games = d.live === 1 ? 'One game is' : `${d.live} games are`;
+    const head = on ? `${on === 1 ? 'One signal' : `${on} signals`} can be bet right now.`
+      : s.open ? `Nothing to bet right now. ${s.open === 1 ? 'One open signal is' : `${s.open} open signals are`} waiting on a result.`
+        : `No signal is open right now. ${games} live.`;
+    const today = done || waiting ? ` Today so far: ${settled(s)}${waiting ? `, ${waiting} waiting on a result` : ''}.` : '';
+    return { head, sub: `${on || s.open ? `${games} live.` : ''}${today}${d.record ? '' : ` ${apart}`}`.trim() };
   }
   const when = d.today ? 'today' : `on ${d.weekday}`;
   const head = s.n ? `${plural(s.n, 'signal')} ${when}: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : `No signals ${when}.`;

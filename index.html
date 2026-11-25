@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=23">
+<link rel="stylesheet" href="css/app.css?v=24">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -86,21 +86,22 @@
     <p class="book-link" id="book-line" hidden></p>
     <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
 
-    <div class="block" id="feed-block" hidden>
-      <h2>Open signals</h2>
-      <div class="sched feed" id="feed"></div>
-    </div>
-
-    <div class="block" id="watch-block" hidden>
-      <h2>Closest to a signal</h2>
-      <div class="sched feed watch" id="watch"></div>
-      <p class="note" id="watch-note"></p>
-    </div>
-
-    <div class="block" id="settled-block" hidden>
-      <h2 id="settled-h">Signals, newest first</h2>
-      <div class="sched feed" id="settled"></div>
-      <p><button type="button" class="key" id="feed-more" hidden></button></p>
+    <div class="desk" id="desk" hidden>
+      <section class="block" id="feed-block">
+        <h2>Bet now</h2>
+        <div class="sched feed now" id="feed"></div>
+        <p class="note" id="feed-note" hidden></p>
+      </section>
+      <section class="block" id="watch-block">
+        <h2>Closest to a signal</h2>
+        <div class="sched feed watch" id="watch"></div>
+        <p class="note" id="watch-note"></p>
+      </section>
+      <section class="block" id="settled-block" hidden>
+        <h2 id="settled-h">Signals, newest first</h2>
+        <div class="sched log" id="settled"></div>
+        <p><button type="button" class="key" id="feed-more" hidden></button></p>
+      </section>
     </div>
 
     <div class="block">
@@ -388,7 +389,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=23"></script>
+<script type="module" src="js/app.js?v=24"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

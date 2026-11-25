@@ -17,13 +17,15 @@ test('before the first tip it gives the count and the time', () => {
   assert.match(w.sub, /minute 4/);
 });
 
-test('with games live it leads with what is open', () => {
+test('with games live it leads with what can be bet now', () => {
   const live = { live: 14, readings: 300 };
-  assert.equal(say({ ...live, signals: { n: 5, open: 2, won: 2, lost: 1, pushed: 0 } }).head, '2 signals are open across 14 live games.');
-  assert.equal(say({ ...live, live: 1, signals: { n: 1, open: 1, won: 0, lost: 0, pushed: 0 } }).head, 'One signal is open across 1 live game.');
+  assert.equal(say({ ...live, signals: { n: 5, open: 2, on: 1, won: 2, lost: 1, pushed: 0 } }).head, 'One signal can be bet right now.');
+  assert.equal(say({ ...live, signals: { n: 5, open: 3, on: 2, won: 2, lost: 0, pushed: 0 } }).head, '2 signals can be bet right now.');
+  assert.equal(say({ ...live, signals: { n: 5, open: 2, on: 0, won: 2, lost: 1, pushed: 0 } }).head, 'Nothing to bet right now. 2 open signals are waiting on a result.');
+  assert.equal(say({ ...live, live: 1, signals: { n: 1, open: 1, won: 0, lost: 0, pushed: 0 } }).head, 'Nothing to bet right now. One open signal is waiting on a result.');
   assert.equal(say(live).head, 'No signal is open right now. 14 games are live.');
-  assert.match(say({ ...live, signals: { n: 5, open: 2, won: 2, lost: 1, pushed: 0 } }).sub, /^Settled so far today: 2 won, 1 lost\. Across 300 readings .* 1\.4 points apart/);
-  assert.doesNotMatch(say(live).sub, /Settled/);
+  assert.match(say({ ...live, signals: { n: 5, open: 2, on: 1, won: 2, lost: 1, pushed: 0 } }).sub, /^14 games are live\. Today so far: 2 won, 1 lost, 1 waiting on a result\. Across 300 readings .* 1\.4 points apart/);
+  assert.doesNotMatch(say(live).sub, /Today so far/);
 });
 
 test('a finished slate leads with its record', () => {
@@ -70,10 +72,10 @@ test('how long ago a signal fired', () => {
   assert.equal(agoWords(4000), '');
 });
 
-test('with the record beside the headline, the live standfirst says what the record is', async () => {
+test('with the record beside the headline, the live standfirst stays to the day', async () => {
   const { boardWords, watchWords } = await import('../js/words.js');
   const base = { loaded: true, today: true, weekday: 'Tuesday', games: 40, live: 3, ahead: 20, nextTip: '6:00 PM', anyFinal: true, readings: 200, apart: 1.1, firstMinute: 4, afterFact: false, signals: { n: 2, open: 1, won: 1, lost: 0, pushed: 0 } };
-  assert.match(boardWords({ ...base, record: true }).sub, /^Settled so far today: 1 won, 0 lost\. Every signal is logged before the result/);
+  assert.equal(boardWords({ ...base, record: true }).sub, '3 games are live. Today so far: 1 won, 0 lost, 1 waiting on a result.');
   assert.match(boardWords({ ...base, record: false }).sub, /1\.1 points apart/);
   assert.deepEqual(watchWords({ dev: 1.72, lean: 1.5, book: 142.5, fair: 145.6 }), { side: 'over', on: true, text: 'On watch for the over: book 142.5, fair 145.6' });
   assert.deepEqual(watchWords({ dev: -1.2, lean: 1.5, book: 150.5, fair: 148.9 }), { side: 'under', on: false, text: 'Leaning to the under: book 150.5, fair 148.9' });
