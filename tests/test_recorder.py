@@ -123,6 +123,10 @@ class Recording(unittest.TestCase):
         self.assertEqual(held(run, hold_by='poss'), [])
         self.assertEqual(record.poss_of([0, 10.0, 58, 7, 8, 6, 20, 43, 15, 8, 14, 13]), (58 - 8 + 6 + 0.475 * 7) + (43 - 8 + 14 + 0.475 * 15))
         self.assertIsNone(record.poss_of([0, 10.0, 58, 7, None, None, None, 43, 15, None, None, None]))
+        # a hole in the live line inside the hold: the rule runs across it, the unbroken comparison starts again
+        holed = self.game([4] * 14, every=30); del holed['r'][7:9]
+        self.assertEqual([s['ts'] for s in held(holed)], [270])
+        self.assertGreater(held(holed, run_break=45)[0]['ts'], 270)
         # the price test can be left out, as a comparison
         dear = self.game([4] * 14, every=30, price=-400)
         self.assertEqual(held(dear), [])

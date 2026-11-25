@@ -53,6 +53,7 @@ IDEAS = (('signal-teams', {'markets': ('away', 'home')}, None),           # team
          ('signal-hold-clock', {'hold_by': 'clock'}, None),                # the hold counted on the game clock: two minutes of basketball, however long that takes
          ('signal-hold-live', {'hold_by': 'live'}, None),                  # two minutes by the wall clock, of which the game clock ran at least one: a stoppage cannot satisfy it
          ('signal-hold-poss', {'hold_by': 'poss'}, None),                  # two minutes by the wall clock and four possessions played in them (needs the box readings below)
+         ('signal-hold-unbroken', {'run_break': 45}, None),                # the hold restarts at any hole over 45 seconds: a suspended market cannot count toward it
          ('signal-no-price', {'margin': None}, None),                      # without the price test: what the test adds or removes
          ('signal-fresh-line', {'fresh': True}, None),                     # nothing while the sportsbook total has stood two minutes with six points scored: a quote that may be stale
          ('signal-repeat', {'again': 1.0}, None),                          # let a market fire again after its gap has closed
@@ -198,7 +199,7 @@ def held_for(g, start, ts, t, hold, hold_by):
         p0, p1 = poss_at(g, start[1]), poss_at(g, ts)
         return p0 is not None and p1 is not None and p1 - p0 >= HOLD_POSS
     return True
-def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS, guard=True, hold=HOLD, hold_by='wall', margin=MARGIN, fresh=False):
+def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS, guard=True, hold=HOLD, hold_by='wall', margin=MARGIN, fresh=False, run_break=RUN_BREAK):
     """First reading per market and side whose averaged gap has sat k deviations from zero for `hold` seconds, at a price
     the chance clears on that reading. hold=0 fires on the first reading at k, the rule before November 25.
     arm: if given, the reading before it must already have been that many deviations out on the same side.
@@ -214,7 +215,9 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
     counts the game clock (hold/60 minutes of play); 'live' is the wall clock plus HOLD_LIVE minutes of play inside it;
     'poss' is the wall clock plus HOLD_POSS possessions inside it, from the box readings (no box readings, no signal).
     margin: points of chance over break-even the price must leave; None drops the price test.
-    fresh: True skips a reading whose line has stood STALE_SEC seconds while STALE_PTS points were scored."""
+    fresh: True skips a reading whose line has stood STALE_SEC seconds while STALE_PTS points were scored.
+    run_break: the longest hole between judged readings the hold may run across. The rule allows RUN_BREAK seconds, so a
+    minute with no live line (a suspended market) does not restart it; the comparison allows 45."""
     yard = yard or YARD
     if not g.get('pre'): return []
     tot, hsp = g['pre']; out = []; fired = set(); count = {}; fin = g.get('final'); prev_ok = {}; wide = abs(hsp) >= BLOW_SPREAD; since = {}; last_ts = None
@@ -225,7 +228,7 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
         if stood is None or stood[2] != bt: stood = (r['ts'], a + h, bt)
         if fresh and r['ts'] - stood[0] >= STALE_SEC and a + h - stood[1] >= STALE_PTS: prev_ok = {}; since = {}; last_ts = None; continue
         if r['avg'] is None or not (T0 <= t <= last) or (wide or abs(a - h) >= BLOW_LEAD) != lopsided: prev_ok = {}; since = {}; last_ts = None; continue
-        if last_ts is not None and r['ts'] - last_ts > RUN_BREAK: since = {}   # a hole in the readings: the hold starts again
+        if last_ts is not None and r['ts'] - last_ts > run_break: since = {}   # a hole in the readings: the hold starts again
         last_ts = r['ts']; now_ok = {}
         mk = [('total', 'Game total', f['fa'] + f['fh'], bt, f['sd_total'], yard['total'], (f['ashort'] + f['hshort']) >= 5, r['op'], r['up'], None if not fin else fin[0] + fin[1]),
               ('away', g['away'] + ' team total', f['fa'], bt / 2 + bs / 2, f['sd_team'], yard['team'], f['ashort'] >= 3, None, None, None if not fin else fin[0]),

@@ -949,6 +949,7 @@ const IDEA_LABELS = {
   'signal-hold-clock': 'Hold counted on the game clock: two minutes of play',
   'signal-hold-live': 'Two-minute hold with at least a minute of play in it',
   'signal-hold-poss': 'Two-minute hold with four possessions in it',
+  'signal-hold-unbroken': 'Hold restarted by any 45-second hole in the live line',
   'signal-no-price': 'Without the price test',
   'signal-fresh-line': 'Skipping a sportsbook total that has stood two minutes while six points were scored',
   'signal-repeat': 'Firing again after the gap closes',
