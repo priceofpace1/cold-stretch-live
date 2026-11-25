@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=28">
+<link rel="stylesheet" href="css/app.css?v=29">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -83,6 +83,7 @@
         <div><dt><span class="full">the same bets at the line showing a minute later</span><span class="brief">same bets a minute later</span></dt><dd id="fig-late">–</dd></div>
       </dl>
     </div>
+    <p class="note proof-note" id="proof-note" hidden></p>
     <p class="book-link" id="book-line" hidden></p>
     <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
 
@@ -106,6 +107,7 @@
         <p><button type="button" class="key" id="feed-more" hidden></button></p>
       </section>
     </div>
+    <p class="note rule-line" id="rule-line" hidden></p>
 
     <div class="block">
       <div class="block-head">
@@ -172,6 +174,7 @@
         <div class="side is-home" id="side-home"></div>
       </div>
       <div class="sched feed" id="game-feed" aria-label="Signals in this game" hidden></div>
+      <p class="note rule-line" id="game-rule" hidden></p>
       <p class="venue" id="game-venue" hidden><span class="note">Bet at</span><span class="seg venue-seg" role="group" aria-label="Where you bet"></span></p>
       <p class="card-share" id="card-share" hidden><button type="button" class="key" id="share-card">Share this result</button><span class="note" id="card-note" aria-live="polite"></span></p>
       <div class="markets" id="markets" role="group" aria-label="Market" hidden>
@@ -255,6 +258,17 @@
       <h2>Units won or lost, signal by signal</h2>
       <p class="note">One unit risked on every signal scored live, at the price the sportsbook was quoting, in the order they fired.</p>
       <div class="panel chart-panel"><div class="chart" id="units"></div></div>
+    </div>
+
+    <div class="block" id="rule-block" hidden>
+      <h2>The record under each rule</h2>
+      <p class="note">The headline adds these together. The rule has changed twice since the record began, each time for a reason given on the About page, and a signal stays under the rule it was logged with.</p>
+      <div class="sheet">
+        <table class="first-wraps drop-46">
+          <thead><tr><th>Rule</th><th class="r">Signals</th><th class="r">Won–lost</th><th class="r">Win rate</th><th class="r">Units</th><th class="r">Open</th></tr></thead>
+          <tbody id="rule-rows"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="block" id="split-block" hidden>
@@ -394,7 +408,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=28"></script>
+<script type="module" src="js/app.js?v=29"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

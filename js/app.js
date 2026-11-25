@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=28';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=28';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=28';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=28';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=28';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords } from './words.js?v=28';
-import { cardModel, drawCard } from './card.js?v=28';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=29';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=29';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=29';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=29';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=29';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=29';
+import { cardModel, drawCard } from './card.js?v=29';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -23,6 +23,17 @@ const DATA = dataBase();
 const slateOf = (ms) => new Date(ms - 10 * 36e5).toISOString().slice(0, 10).replace(/-/g, '');
 const toUTC = (d) => Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8));
 const shiftDay = (d, n) => new Date(toUTC(d) + n * 864e5).toISOString().slice(0, 10).replace(/-/g, '');
+const monthDay = (d) => new Date(toUTC(d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+/** The rule a slate was judged under: the newest one that had started by then. Null for a slate from before the record. */
+const ruleFor = (date) => RULE_HISTORY.filter((r) => r.since <= date).pop() || null;
+/** One line under the signals saying what the rule is, with a way to the full account. */
+function renderRuleLine(el, date) {
+  const now = RULE_HISTORY[RULE_HISTORY.length - 1], r = ruleFor(date) || now, y = S.yardDay && S.yardDay.total ? S.yardDay.total : null;
+  const text = ruleLine({ version: r.version, since: monthDay(r.since), current: r === now && !!ruleFor(date), before: !ruleFor(date), dev: y });
+  const a = document.createElement('a'); a.href = '#/about'; a.textContent = 'The rule in full';
+  el.replaceChildren(document.createTextNode(`${text} `), a);
+  el.hidden = !text;
+}
 const dayLabel = (d) => new Date(toUTC(d)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const today = () => slateOf(Date.now());
@@ -442,7 +453,13 @@ function renderLead(all) {
     $('#fig-units').className = rec.units > 0 ? 'is-over' : rec.units < 0 ? 'is-under' : '';
     $('#fig-late').textContent = rec.late.won + rec.late.lost ? `${rec.late.won}–${rec.late.lost}` : '–';
     $('#fig-since').textContent = sinceLabel();
+    // The figures cover every rule there has been. Say how many of them the rule now in force accounts for.
+    const now = RULE_HISTORY[RULE_HISTORY.length - 1], cur = recordOf(S.ledger.filter((s) => s.rule === now.version), now.since);
+    $('#proof-note').textContent = cur.won + cur.lost ? `Under the rule in force since ${monthDay(now.since)}: ${cur.won}–${cur.lost}. The rest were logged under earlier rules.`
+      : `All logged under earlier rules. The rule in force since ${monthDay(now.since)} has no graded signal yet.`;
   }
+  $('#proof-note').hidden = !graded;
+  renderRuleLine($('#rule-line'), S.date);
   const { head, sub } = boardWords({
     loaded: !!S.scoresAt, today: isToday(), weekday: new Date(toUTC(S.date)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
     games: all.length, live, ahead: ahead.length, nextTip: ahead.length ? timeLabel(ahead[0].start) : '', anyFinal: all.some((g) => g.state === 'post'),
@@ -814,6 +831,7 @@ function renderGame() {
     $('#game-feed').append(more);
   }
   $('#game-feed').hidden = !lead.length;
+  renderRuleLine($('#game-rule'), S.date);
   $('#card-share').hidden = !(g.state === 'post' && lead.some(({ s }) => s.market === 'total' && !s.fault && !s.own && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')));
   if (S.cardFor !== g.id) { S.cardFor = g.id; $('#card-note').textContent = ''; }
   renderBookLink(g, st);
@@ -991,6 +1009,23 @@ function renderRecord() {
     for (const [v, c] of [[label], [rows.length, 'r'], [w + l ? `${w}–${l}` : '–', 'r'], [w + l ? `${Math.round((100 * w) / (w + l))}%` : '–', 'r'], [w + l ? signed(rows.reduce((u, s) => u + pay(s), 0)) : '–', 'r'], [pending || '', 'r']]) tr.append(h('td', c || '', v));
     return tr;
   };
+  // Each rule's own record. The headline figures add these together; a reader should be able to see which rule earned what.
+  const byRule = RULE_HISTORY.map((r, i) => {
+    const next = RULE_HISTORY[i + 1], rows = live.filter((s) => s.rule === r.version);
+    const dayBefore = (d) => new Date(toUTC(d) - 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+    const span = next ? `${monthDay(r.since)} to ${monthDay(dayBefore(next.since))}` : `Since ${monthDay(r.since)}, the rule now`;
+    const tr = splitRow(`${span}: ${RULE_BRIEF[r.version] || r.version}`, rows);
+    if (!next) tr.className = 'is-now';
+    return tr;
+  });
+  const replay = S.ladder.filter((x) => x.rule === 'signal' && x.stage === 'all');
+  if (replay.length) {
+    const n = replay.reduce((a, x) => a + x.n, 0), w = replay.reduce((a, x) => a + x.won, 0), l = replay.reduce((a, x) => a + x.lost, 0), u = replay.reduce((a, x) => a + x.units, 0), tr = document.createElement('tr');
+    for (const [v, c] of [[`The rule now, replayed on all ${replay.length} recorded slates after the fact. A backtest, not part of the record`], [n, 'r'], [w + l ? `${w}–${l}` : '–', 'r'], [w + l ? `${Math.round((100 * w) / (w + l))}%` : '–', 'r'], [w + l ? signed(u) : '–', 'r'], ['', 'r']]) tr.append(h('td', c || '', v));
+    tr.className = 'is-aside'; byRule.push(tr);
+  }
+  $('#rule-rows').replaceChildren(...byRule);
+  $('#rule-block').hidden = !live.length;
   const isTotal = (s) => (s.mkt || '') === 'total' || s.market === 'Game total';
   const groups = [['Game totals at the quoted price, scored live', live], ['Team totals at an estimated price, scored live until November 21 and since dropped', retired],
     ['Game totals, scored after the fact', back.filter(isTotal)], ['Team totals, scored after the fact', back.filter((s) => !isTotal(s))]].filter(([, rows]) => rows.length);
@@ -1346,7 +1381,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=28')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=29')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

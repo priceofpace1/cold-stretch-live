@@ -93,3 +93,27 @@ export function agoWords(seconds) {
 export function lastedWords(seconds) {
   return seconds < 90 ? `after ${Math.max(10, Math.round(seconds / 10) * 10)} sec` : `after ${Math.round(seconds / 60)} min`;
 }
+
+/**
+ * Each rule there has been, in a line a reader can hold in mind. Keyed by the rule's version (js/model.js RULE_HISTORY);
+ * shown beside the signals on the board and the game page and against each rule's own record. `dev` is one deviation in
+ * points as a string, where it is known.
+ */
+export const RULE_BRIEF = Object.freeze({
+  '2026-11-19.2': 'the three-minute average gap 2 deviations out, logged the moment it got there, minutes 4 to 38, game and team totals',
+  '2026-11-22.1': 'the three-minute average gap 2 deviations out, logged the moment it got there, minutes 4 to 34, game totals only',
+  '2026-11-25.1': 'the three-minute average gap 2 deviations out and held there 2 minutes, minutes 4 to 34, game totals only, nothing on a stalled score feed',
+});
+/** The same rules as the board says them: shorter, with the distance in points where the day's deviation is known. */
+const RULE_SHORT = Object.freeze({
+  '2026-11-19.2': (pts) => `three-minute average gap of 2 deviations${pts}, logged when first reached, minutes 4 to 38`,
+  '2026-11-22.1': (pts) => `three-minute average gap of 2 deviations${pts}, logged when first reached, minutes 4 to 34`,
+  '2026-11-25.1': (pts) => `three-minute average gap of 2 deviations${pts}, held 2 minutes, minutes 4 to 34`,
+});
+export function ruleLine(d) {
+  const short = RULE_SHORT[d.version];
+  if (!short) return '';
+  const said = `${short(d.dev ? ` (${(2 * d.dev).toFixed(1)} points ${d.current ? 'today' : 'that day'})` : '')}, at a price that pays.`;
+  if (d.before) return `From before the record began, and judged afterwards under the rule now in force: ${said}`;
+  return `${d.current ? `Signal rule since ${d.since}` : `Signal rule on this slate (since ${d.since})`}: ${said}`;
+}

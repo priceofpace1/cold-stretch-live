@@ -94,3 +94,16 @@ test('the bet button says the bet, and how far the line can move against it', as
   assert.deepEqual(betWords(book, 'Under', { line: 150.5, price: 105, goodTo: 150.5 }), { label: 'Bet under 150.5 at +105', note: 'Not worth taking at a worse line.' });
   assert.equal(betWords({ key: 'coinbase', name: 'Coinbase' }, 'Over', { line: 141.5, price: 0.52 }).label, 'Buy over 141.5 at 52¢ on Coinbase');
 });
+
+test('the rule is said in one line, for the rule of the slate in view', async () => {
+  const { ruleLine, RULE_BRIEF } = await import('../js/words.js');
+  const { RULE_HISTORY } = await import('../js/model.js');
+  const now = RULE_HISTORY[RULE_HISTORY.length - 1];
+  for (const r of RULE_HISTORY) { assert.ok(RULE_BRIEF[r.version], `a table line for ${r.version}`); assert.ok(ruleLine({ version: r.version, since: 'x' }), `a board line for ${r.version}`); }
+  assert.equal(ruleLine({ version: now.version, since: 'Nov 25', current: true, dev: 1.337 }),
+    'Signal rule since Nov 25: three-minute average gap of 2 deviations (2.7 points today), held 2 minutes, minutes 4 to 34, at a price that pays.');
+  assert.equal(ruleLine({ version: '2026-11-22.1', since: 'Nov 22', dev: 1.46 }),
+    'Signal rule on this slate (since Nov 22): three-minute average gap of 2 deviations (2.9 points that day), logged when first reached, minutes 4 to 34, at a price that pays.');
+  assert.match(ruleLine({ version: now.version, since: 'Nov 25', before: true }), /^From before the record began, and judged afterwards under the rule now in force: three-minute average gap of 2 deviations, held 2 minutes/);
+  assert.equal(ruleLine({ version: 'nope' }), '');
+});
