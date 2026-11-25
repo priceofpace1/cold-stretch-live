@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=27';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=27';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=27';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=27';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=27';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords } from './words.js?v=27';
-import { cardModel, drawCard } from './card.js?v=27';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=28';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=28';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=28';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=28';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=28';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords } from './words.js?v=28';
+import { cardModel, drawCard } from './card.js?v=28';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -147,7 +147,7 @@ async function loadRecorded() {
     S.recordedAt = d.updated || null;
     S.yardDay = d.yardstick && d.yardstick.unit === 'points' && d.yardstick.total && d.yardstick.team ? d.yardstick : null;
   } catch { S.recorded = new Map(); S.recordedAt = null; S.yardDay = null; }
-  try { S.ledger = await getJSON(`${DATA}ledger.json?_=${minute}`, { retries: 0 }); } catch { S.ledger = []; }
+  try { S.ledger = await getJSON(`${DATA}ledger.json?_=${minute}`, { retries: 0 }); S.ledgerOk = true; } catch { S.ledger = []; S.ledgerOk = false; }
   try { S.index = await getJSON(`${DATA}index.json?_=${minute}`, { retries: 0 }); } catch { S.index = []; }
   try { S.ladder = await getJSON(`${DATA}ladder.json?_=${minute}`, { retries: 0 }); } catch { S.ladder = []; }
 }
@@ -311,26 +311,45 @@ function signalsOf(g) {
   const key = `${g.id}:signals`;
   if (S.memo.has(key)) return S.memo.get(key);
   const pre = preOf(g);
-  const out = !isToday() && S.ledger.length ? S.ledger.filter((s) => s.date === S.date && String(s.game) === String(g.id) && MARKETS.includes(s.mkt)).sort((a, b) => a.ts - b.ts).map(fromLedger)
-    : pre && S.model && Math.abs(pre[1]) < RULES.blowoutSpread ? S.model.signalsFor(pre, readingsAll(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard() }) : [];
+  const logged = () => S.ledger.filter((s) => s.date === S.date && String(s.game) === String(g.id) && MARKETS.includes(s.mkt)).sort((a, b) => a.ts - b.ts).map(fromLedger);
+  const mine = () => (pre && S.model && Math.abs(pre[1]) < RULES.blowoutSpread ? S.model.signalsFor(pre, readingsAll(g), g.state === 'post' ? { away: g.away.pts, home: g.home.pts } : null, { yard: yard() }) : []);
+  let out;
+  if (!isToday()) out = S.ledger.length ? logged() : mine();
+  else if (!S.ledgerOk) out = mine(); // the record could not be read: show this page's own read, unmarked
+  else {
+    // Today the recorder's ledger is the record, as it is for every past slate. This page also judges the readings it has,
+    // which run a few minutes ahead of the recorder's saved file and are polled at other moments, so it can see a signal
+    // first, or see one the recorder never logs. Such a signal is shown, marked `own`, and is not counted.
+    const fin = g.state === 'post' ? g.away.pts + g.home.pts : null;
+    const rec = logged().map((s) => (s.result === 'Pending' && fin != null && s.market === 'total'
+      ? { ...s, final: fin, result: fin === s.line ? 'Push' : (fin > s.line) === (s.side === 'Over') ? 'Won' : 'Lost' } : s)); // the final is known here before the recorder saves it
+    const own = mine().filter((m) => !rec.some((s) => s.market === m.market && s.side === m.side)).map((m) => ({ ...m, own: true }));
+    out = [...rec, ...own].sort((a, b) => a.at - b.at);
+  }
   S.memo.set(key, out);
   return out;
 }
+const OWN_LATE_SEC = 600; // the recorder saves about every five minutes; a signal it has not logged by now it will not log
+/** What to say of a signal only this page has seen. Empty for one in the record. */
+const ownNote = (s) => (!s.own ? '' : Date.now() / 1000 - s.at < OWN_LATE_SEC ? 'Not in the public record yet.' : 'Seen on this page only. The recorder did not log it.');
 
 /** What the three-minute average did, in a sentence: how often it went past the signal distance, and how far. */
 function excursion(s, g) {
   const a = s.filter((p) => p.avg != null);
   if (!a.length) return s.length ? 'Not yet three minutes of line to average.' : 'No line recorded.';
   const far = a.filter((p) => Math.abs(p.avg) >= RULES.buyDev), out = far.length;
+  // what was called in this game and how it came out, ahead of the description of the gap
+  const calls = g ? signalsOf(g).filter((s) => s.market === 'total' && !s.own).map((s) => `${s.side.toLowerCase()} ${f1(s.line)}, ${s.fault ? 'not counted' : s.result === 'Pending' ? 'open' : s.result.toLowerCase()}`) : [];
+  const called = calls.length ? `${calls.length === 1 ? 'Signal' : 'Signals'}: ${calls.join('; ')}. ` : '';
   const peak = a.reduce((b, p) => (Math.abs(p.avg) > Math.abs(b.avg) ? p : b), a[0]);
   if (g && wideSpread(g)) {
     const spread = `Signals are off in this game: the pregame spread was ${f1(Math.abs(preOf(g)[1]))}, and the rule stops at ${RULES.blowoutSpread}.`;
     return out ? `${spread} The average peaked at ${dev1(peak.avg)} deviations, or ${f1(Math.abs(peak.avgGap))} points.` : spread;
   }
-  if (!out) return g && signalsOf(g).length ? 'A signal was logged here, under the rule in force that day.' : `Stayed inside ${RULES.buyDev} deviations.`;
+  if (!out) return g && signalsOf(g).length ? `${called}A signal was logged here, under the rule in force that day.`.replace(/^(Signals?: .*\. )A signal was logged here, under/, '$1Logged under') : `Stayed inside ${RULES.buyDev} deviations.`;
   const off = far.filter((p) => p.off).length;
   const lead = off === out ? ` All with the lead at ${RULES.blowoutLead} or more, where signals are off.` : off ? ` ${off} with the lead at ${RULES.blowoutLead} or more, where signals are off.` : '';
-  return `Beyond ${RULES.buyDev} deviations on ${out} of ${a.length} readings. Peak ${dev1(peak.avg)}, or ${f1(Math.abs(peak.avgGap))} points.${lead}`;
+  return `${called}Beyond ${RULES.buyDev} deviations on ${out} of ${a.length} readings. Peak ${dev1(peak.avg)}, or ${f1(Math.abs(peak.avgGap))} points.${lead}`;
 }
 
 /** One game as a small multiple. Returns the card and a function that draws its chart once the card is in the page. */
@@ -409,11 +428,11 @@ function renderLead(all) {
     if (!s.length) continue;
     measured += 1;
     for (const p of s) { gaps.push(p.gap); if (p.avg != null) devs.push(p.avg); }
-    signals += signalsOf(g).filter((x) => !x.fault).length;
+    signals += signalsOf(g).filter((x) => !x.fault && !x.own).length;
   }
   const st = { ...gapStats(devs, RULES.buyDev), abs: gapStats(gaps).abs }, live = all.filter((g) => g.state === 'in').length, ahead = all.filter((g) => g.state === 'pre').sort((a, b) => new Date(a.start) - new Date(b.start));
   // The headline says what there is to act on; js/words.js holds the wording for every state of a slate.
-  const sig = all.flatMap((g) => signalsOf(g)).filter((x) => !x.fault), count = (r) => sig.filter((x) => x.result === r).length; // a signal logged on a stalled feed is listed, not counted
+  const sig = all.flatMap((g) => signalsOf(g)).filter((x) => !x.fault && !x.own), count = (r) => sig.filter((x) => x.result === r).length; // a signal logged on a stalled feed, or seen by this page alone, is listed and not counted
   // The record leads the page: what has been logged and graded, in the three figures a newcomer would ask for first.
   const rec = recordOf(S.ledger, RULES.liveSince), graded = rec.won + rec.lost > 0;
   $('#proof').hidden = !graded; $('#record-link').hidden = !graded;
@@ -479,7 +498,7 @@ function signalRow(g, s, withGame) {
   const open = s.result === 'Pending', live = open && g.state === 'in' && isToday(), age = Date.now() / 1000 - s.at;
   const ago = live ? agoWords(age) : '';
   const who = h('span', 'who');
-  who.append(h('span', '', `${name}, ${s.side.toLowerCase()} ${f1(s.line)}`),
+  who.append(h('span', '', `${name}, ${s.side.toLowerCase()} ${f1(s.line)}${s.price == null || s.priced === 'assumed' ? '' : ` at ${s.price > 0 ? '+' : '−'}${Math.abs(Math.round(s.price))}`}`),
     h('span', 'feed-sub', `${withGame ? `${g.away.name} at ${g.home.name}, ` : ''}${clockLabel(s.minute)}${withGame ? '' : `, score ${s.score}`}${ago ? `, ${ago}` : ''}`));
   if (live) {
     const now = signalNow(s, nowRow(g)), w = signalWords(now, { lastMinute: RULES.lastMinute, lead: RULES.blowoutLead });
@@ -487,10 +506,11 @@ function signalRow(g, s, withGame) {
     who.append(h('span', `feed-now${w.on ? ' is-on' : ''}`, lasted == null ? w.text : `${w.text} ${lastedWords(lasted)}`));
   }
   if (s.fault) who.append(h('span', 'feed-now', 'Logged while the score feed was stalled. Not counted in the record.'));
+  if (s.own) who.append(h('span', 'feed-now', ownNote(s)));
   const cb = live && s.market === 'total' ? cbQuote(g, standing(g)) : null;
   if (cb && cb[s.side]) who.append(h('span', `feed-now cb-now${cb[s.side].edge >= (CB.cfg.margin || 0.05) ? ' is-on' : ''}`, quoteWords(s.side, cb[s.side])));
   const res = !open ? s.result : live && age < NEW_SEC ? 'New' : 'Open';
-  b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, res), who, h('span', 'what', s.final == null ? `fair ${f1(s.fair)}` : `final ${s.final}`));
+  b.append(h('span', `when ${s.fault || s.own ? '' : s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, res), who, h('span', 'what', s.final == null ? `fair ${f1(s.fair)}` : `final ${s.final}`));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
   const bet = live && s.market === 'total' ? betRow(g, s) : null;
   return bet ? [b, bet] : [b];
@@ -586,7 +606,7 @@ function nowSignalRow(g, s) {
   const ago = agoWords(age), from = now.line !== s.line ? ` at ${f1(s.line)}` : '', run = runOf(g, s.side);
   who.append(h('span', 'bet-call', `${s.side} ${f1(now.line)}${price}`),
     h('span', 'feed-sub', `${g.away.name} at ${g.home.name}, ${clockText(g)}, ${g.away.pts}–${g.home.pts}`),
-    h('span', 'feed-sub', `Held ${Math.floor(run.sec / 60)} min at ${run.dev.toFixed(1)} deviations. Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`));
+    h('span', 'feed-sub', `Held ${Math.floor(run.sec / 60)} min at ${run.dev.toFixed(1)} deviations. ${s.own ? ownNote(s) : `Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`}`));
   b.append(h('span', 'when', run.sec < HOLD_SEC + NEW_SEC ? 'New' : 'Open'), who, h('span', 'what', `fair ${f1(nowRow(g).markets.total.fair)}`));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
   const bet = s.market === 'total' ? betRow(g, s) : null;
@@ -603,6 +623,7 @@ function logRow(g, s) {
     how = now.state === 'gone' ? 'edge gone' : now.state === 'none' ? 'no live line' : now.state === 'off' ? (now.why === 'late' ? `past minute ${RULES.lastMinute}` : now.why === 'stalled' ? 'score feed stalled' : `lead of ${RULES.blowoutLead} or more`) : 'still on';
     if (now.state === 'on') { const run = runOf(g, s.side); how = !run ? 'gap under 2 now' : run.sec < HOLD_SEC - HOLD_SLACK ? `building, ${Math.floor(run.sec / 60)} of ${HOLD_SEC / 60} min` : 'still on'; }
   }
+  if (s.own) how = `${how}, this page only`;
   if (s.fault) how = open ? 'stalled feed, not counted' : `${s.result.toLowerCase()}, not counted`; // logged on a stalled score feed, before the rule stopped judging such readings
   const price = s.price == null || s.priced === 'assumed' ? '' : ` at ${s.price > 0 ? '+' : '−'}${Math.abs(Math.round(s.price))}`;
   b.append(h('span', `when ${s.fault ? '' : s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, open ? 'Open' : s.fault ? 'Stalled' : s.result),
@@ -793,7 +814,7 @@ function renderGame() {
     $('#game-feed').append(more);
   }
   $('#game-feed').hidden = !lead.length;
-  $('#card-share').hidden = !(g.state === 'post' && lead.some(({ s }) => s.market === 'total' && !s.fault && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')));
+  $('#card-share').hidden = !(g.state === 'post' && lead.some(({ s }) => s.market === 'total' && !s.fault && !s.own && (s.result === 'Won' || s.result === 'Lost' || s.result === 'Push')));
   if (S.cardFor !== g.id) { S.cardFor = g.id; $('#card-note').textContent = ''; }
   renderBookLink(g, st);
   renderCoinbase(g, st);
@@ -1141,8 +1162,12 @@ function setupSite() {
 
 function renderAbout() {
   const host = $('#about');
-  if (host.childElementCount) return;
-  const y = S.model ? S.model.yardstick : null, dev = y ? f1(y.total) : '1.2';
+  // One deviation in points: the yardstick of the newest slate, not the first night's. The page is drawn once, often before
+  // the recorder's files have arrived, so this one figure is filled in again on every pass.
+  const latest = S.index.length ? S.index[S.index.length - 1].yard_total : null;
+  const dev = S.yardDay && S.yardDay.total ? f1(S.yardDay.total) : latest ? f1(latest) : '1.5';
+  if (host.childElementCount) { const e = $('#about-dev'); if (e) e.textContent = dev; return; }
+  const devEl = h('span', '', dev); devEl.id = 'about-dev';
   const p = (...parts) => { const e = h('p'); e.append(...parts.map((x) => (typeof x === 'string' ? document.createTextNode(x) : x))); return e; };
   const link = (text, href, out) => { const a = h('a', '', text); a.href = href; if (out) { a.target = '_blank'; a.rel = 'noopener'; } return a; };
   const row = (title, ...paras) => { const r = h('div', 'about-row'), body = h('div'); body.append(...paras); r.append(h('h2', '', title), body); return r; };
@@ -1154,13 +1179,13 @@ function renderAbout() {
       p('Fair is the current score plus an estimate of the points still to come. The estimate was fitted on 16,086 Division I games from 2022–23 through December 2025, with a separate fit for every minute of the game. It uses the pregame total and spread, the score and the time left.'),
       p('It knows nothing about injuries, foul trouble or who is on the floor.')),
     row('What counts as a signal',
-      p(`One reading is mostly timing: a basket moves fair before the sportsbook reprices. So the gap is averaged over three minutes and measured in deviations, the usual size of that average on earlier slates, about ${dev} points for a game total.`),
+      p(`One reading is mostly timing: a basket moves fair before the sportsbook reprices. So the gap is averaged over three minutes and measured in deviations, the usual size of that average on earlier slates, about `, devEl, ' points for a game total.'),
       p(`A signal is logged once the average has stayed ${RULES.buyDev} or more deviations out for ${RULES.holdSec / 60} minutes, between minute ${RULES.firstMinute} and minute ${RULES.lastMinute}, at a price the model’s chance beats by ${Math.round(RULES.margin * 100)} points on the quote showing then. A gap that has only just appeared is noise more often than not: on the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the ones that had not were close to break-even. Signals are off when the pregame spread is ${RULES.blowoutSpread} or more or the lead is ${RULES.blowoutLead} or more, because the fair number runs high in those games.`)),
     row('The record',
-      p('Every signal is logged when it fires and settled on the final score, wins and losses alike. Nothing is taken out afterwards. Signals are on the game total and settled at the sportsbook’s live price. Team totals were tracked until November 21 at an estimated price and then dropped; the ones already logged stay on the Record page, counted apart.'),
+      p('Every signal is logged when it fires and settled on the final score, wins and losses alike. Nothing is deleted afterwards. A signal logged while the score feed was stalled stays in the ledger, marked, and is left out of the figures; the mark is applied by a fixed rule, not by hand. Signals are on the game total and settled at the sportsbook’s live price. Team totals were tracked until November 21 at an estimated price and then dropped; the ones already logged stay on the Record page, counted apart.'),
       p(`The record is short. Signals have been scored live since ${longDay(RULES.liveSince)}, and a few weeks of results prove very little. `, link('See the record', '#/record'), '.')),
     row('How the rule has changed',
-      p('The rule changes only between slates, and only for a reason given here. Signals already logged stay in the record under the rule of their day.'),
+      p('The rule changes only for a reason given here, and between slates; the one time it was installed during a slate is noted in its entry below. Signals already logged stay in the record under the rule of their day.'),
       ...RULE_HISTORY.map((x) => p(`${longDay(x.since)}. ${x.change}`))),
     row('What this is not',
       p('It is not betting advice, and it does not predict that any bet will win. The sportsbook line is one book’s number as ESPN publishes it, and yours may show something else. The feeds behind the site are public and can lag, change or stop.')),
@@ -1228,7 +1253,7 @@ for (const b of document.querySelectorAll('[data-share]')) {
  * The phone's share sheet takes the picture where it can; elsewhere it is saved as a file.
  */
 const cardFor = (g) => cardModel({ site: SITE.name, host: location.host, day: dayLabel(S.date), away: g.away.name, home: g.home.name, awayPts: g.away.pts, homePts: g.home.pts,
-  signals: signalsOf(g).filter((s) => s.market === 'total' && !s.fault), points: inWindow(g), record: recordOf(S.ledger, RULES.liveSince), sinceLabel: sinceLabel(), clockLabel }); // the lines end where signals stop, as every chart on the site does
+  signals: signalsOf(g).filter((s) => s.market === 'total' && !s.fault && !s.own), points: inWindow(g), record: recordOf(S.ledger, RULES.liveSince), sinceLabel: sinceLabel(), clockLabel }); // the lines end where signals stop, as every chart on the site does
 async function shareCard() {
   const g = S.games.get(S.sel), note = $('#card-note'), m = g ? cardFor(g) : null;
   if (!m) return;
@@ -1321,7 +1346,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=27')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=28')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=27">
+<link rel="stylesheet" href="css/app.css?v=28">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -78,7 +78,7 @@
         <p class="lead-links"><a class="key is-primary" id="alerts-link" target="_blank" rel="noopener" hidden>Get alerts</a><a href="#/record" id="record-link" hidden>The full record</a></p>
       </div>
       <dl class="figures" id="proof" hidden>
-        <div><dt><span class="full">signals won and lost since <span id="fig-since">the record began</span>, each logged before the result</span><span class="brief">won and lost, every signal</span></dt><dd id="fig-rec">–</dd></div>
+        <div><dt><span class="full">signals won and lost since <span id="fig-since">the record began</span>, each logged before the result</span><span class="brief">won and lost, logged live</span></dt><dd id="fig-rec">–</dd></div>
         <div><dt><span class="full">units, at the price quoted when each one fired</span><span class="brief">units at the quoted price</span></dt><dd id="fig-units">–</dd></div>
         <div><dt><span class="full">the same bets at the line showing a minute later</span><span class="brief">same bets a minute later</span></dt><dd id="fig-late">–</dd></div>
       </dl>
@@ -307,7 +307,7 @@
 
       <div class="block">
         <h3>What each rule would have done</h3>
-        <p class="note">Nine rules run on the same readings, so the rule is chosen on results and not by feel. Readings are about a minute apart. One deviation is the usual spread of the three-minute average, about 1.2 points for a game total. November 17 is measured against itself; every later slate uses only the slates before it. The last row is the signal applied only where it is switched off, to test that choice. It is not in the record.</p>
+        <p class="note">Every rule here runs on the same readings, so the rule is chosen on results and not by feel. Readings are 30 seconds apart since November 22 and about a minute apart before. One deviation is the usual spread of the three-minute average, about a point and a half for a game total. November 17 is measured against itself; every later slate uses only the slates before it. The last row is the signal applied only where it is switched off, to test that choice. It is not in the record.</p>
         <div class="sheet" id="ladder-sheet">
           <table class="first-wraps drop-46">
             <thead><tr><th>Rule</th><th class="r">Signals</th><th class="r">Won–lost</th><th class="r">Win rate</th><th class="r">Units</th><th class="r">Open</th></tr></thead>
@@ -394,7 +394,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=27"></script>
+<script type="module" src="js/app.js?v=28"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

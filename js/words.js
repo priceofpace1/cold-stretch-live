@@ -32,7 +32,7 @@ export function boardWords(d) {
   }
   const when = d.today ? 'today' : `on ${d.weekday}`;
   const head = s.n ? `${plural(s.n, 'signal')} ${when}: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : `No signals ${when}.`;
-  const what = 'A signal is logged when the sportsbook’s live total sits well away from the fair number for three minutes, at a price that pays.';
+  const what = 'A signal is logged when the sportsbook’s live total stays well away from the fair number, at a price that pays.';
   const next = d.today && d.ahead ? ` ${d.ahead === 1 ? 'One game is' : `${d.ahead} games are`} still to tip; the next is at ${d.nextTip}.` : '';
   const scored = d.afterFact && s.n ? ' This slate was scored after the fact, under a rule set later.' : '';
   return { head, sub: `${what} ${apart.replace('have been', d.today ? 'have been' : 'were')}${next}${scored}` };
