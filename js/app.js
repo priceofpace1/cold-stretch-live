@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=24';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=24';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=24';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=24';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=24';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=24';
-import { cardModel, drawCard } from './card.js?v=24';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=25';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=25';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=25';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=25';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=25';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=25';
+import { cardModel, drawCard } from './card.js?v=25';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -533,10 +533,11 @@ function renderFeed(all) {
   const now = rows.filter(({ g, s }) => onNow(g, s)), rest = rows.filter(({ g, s }) => !onNow(g, s)), waiting = rest.filter((r) => r.s.result === 'Pending').length;
   $('#desk').hidden = !liveDay && !rest.length;
   $('#desk').classList.toggle('is-past', !liveDay); // a finished or coming slate has only its log
-  $('#feed-block').hidden = !liveDay; $('#watch-block').hidden = !liveDay;
+  $('#feed-block').hidden = !liveDay || !now.length; $('#watch-block').hidden = !liveDay; // the headline already says when nothing can be bet
+  $('#desk').classList.toggle('no-now', liveDay && !now.length);
   $('#feed').hidden = !now.length;
   $('#feed').replaceChildren(...now.map(({ g, s }) => nowSignalRow(g, s)));
-  $('#feed-note').hidden = !!now.length;
+  $('#feed-note').hidden = true;
   $('#feed-note').textContent = `Nothing to bet right now.${waiting ? ` ${waiting === 1 ? 'One open signal is' : `${waiting} open signals are`} past betting and waiting on a result, in the list below.` : ''}`;
   $('#settled-block').hidden = !rest.length;
   if (!rest.length) { $('#settled').replaceChildren(); return; }
@@ -1215,7 +1216,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=24')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=25')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

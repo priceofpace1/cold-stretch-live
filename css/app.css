@@ -225,6 +225,7 @@ h2 { font: 600 23px/1.2 var(--serif); letter-spacing: -0.005em; }
 .card-share { display: flex; align-items: center; gap: 14px; }
 /* the desk: what can be bet now beside what is close, then every other signal as one line each */
 .desk { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "now watch" "log watch"; grid-template-rows: auto 1fr; gap: 28px 40px; align-items: start; }
+.desk.no-now { grid-template-areas: "log watch"; grid-template-rows: auto; }
 .desk.is-past { grid-template-columns: minmax(0, 1fr); grid-template-areas: "log"; }
 #feed-block { grid-area: now; } #watch-block { grid-area: watch; } #settled-block { grid-area: log; }
 .desk .sched button { padding-top: 9px; padding-bottom: 9px; }
@@ -361,6 +362,7 @@ td.lost { color: var(--sub); }
 /* ---------- small screens ---------- */
 @media (max-width: 860px) {
   .desk { grid-template-columns: minmax(0, 1fr); grid-template-areas: "now" "watch" "log"; grid-template-rows: none; }
+  .desk.no-now { grid-template-areas: "watch" "log"; }
   .primer { padding: 18px 20px; }
   /* a first visit reads the headline before the guide */
   #view-board > .tool { order: -2; }

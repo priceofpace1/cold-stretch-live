@@ -25,7 +25,7 @@ export function boardWords(d) {
     // What can be done right now leads. A signal whose edge has gone is still open, but there is nothing to do about it.
     const on = s.on || 0, waiting = s.open - on, games = d.live === 1 ? 'One game is' : `${d.live} games are`;
     const head = on ? `${on === 1 ? 'One signal' : `${on} signals`} can be bet right now.`
-      : s.open ? `Nothing to bet right now. ${s.open === 1 ? 'One open signal is' : `${s.open} open signals are`} waiting on a result.`
+      : s.open ? 'Nothing to bet right now.'
         : `No signal is open right now. ${games} live.`;
     const today = done || waiting ? ` Today so far: ${settled(s)}${waiting ? `, ${waiting} waiting on a result` : ''}.` : '';
     return { head, sub: `${on || s.open ? `${games} live.` : ''}${today}${d.record ? '' : ` ${apart}`}`.trim() };
