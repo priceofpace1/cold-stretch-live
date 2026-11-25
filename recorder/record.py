@@ -12,6 +12,7 @@ import argparse, bisect, datetime, json, os, subprocess, sys, time, urllib.reque
 from concurrent.futures import ThreadPoolExecutor
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SB = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=%s&groups=50&limit=400&_=%d"
+BX = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball/events/%s/competitions/%s/competitors/%s/statistics?_=%d"
 OD = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball/events/%s/competitions/%s/odds?limit=20&_=%d"
 # Thresholds are in deviations: (fair minus book) / (yardstick x the model's rest-of-game standard deviation at that minute).
 # The signal: the three-minute rolling average of (fair minus book) is BUY_DEV deviations from zero, at a price the chance clears.
@@ -49,6 +50,11 @@ IDEAS = (('signal-teams', {'markets': ('away', 'home')}, None),           # team
          ('signal-at-once', {'hold': 0}, None),                            # the rule before November 25: logged the moment the average reaches two deviations
          ('signal-2.25', {'k': 2.25}, None),                               # the hold at 2.25 deviations
          ('signal-hold-3', {'hold': 180}, None),                           # a three-minute hold
+         ('signal-hold-clock', {'hold_by': 'clock'}, None),                # the hold counted on the game clock: two minutes of basketball, however long that takes
+         ('signal-hold-live', {'hold_by': 'live'}, None),                  # two minutes by the wall clock, of which the game clock ran at least one: a stoppage cannot satisfy it
+         ('signal-hold-poss', {'hold_by': 'poss'}, None),                  # two minutes by the wall clock and four possessions played in them (needs the box readings below)
+         ('signal-no-price', {'margin': None}, None),                      # without the price test: what the test adds or removes
+         ('signal-fresh-line', {'fresh': True}, None),                     # nothing while the sportsbook total has stood two minutes with six points scored: a quote that may be stale
          ('signal-repeat', {'again': 1.0}, None),                          # let a market fire again after its gap has closed
          ('cold-over', {}, lambda s: s['spot'] == 'Cold spot'),            # the original thesis: the over when scoring is well behind pace
          ('cold-over-lopsided', {'lopsided': True}, lambda s: s['spot'] == 'Cold spot'))
@@ -169,7 +175,30 @@ def slate_date(now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     return (now - datetime.timedelta(hours=10)).strftime('%Y%m%d')
 
-def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS, guard=True, hold=HOLD):
+HOLD_LIVE, HOLD_POSS, STALE_SEC, STALE_PTS = 1.0, 4, 120, 6
+def poss_of(x):
+    """Possessions played by both teams at one box reading: field-goal attempts less offensive rebounds, plus turnovers,
+    plus 0.475 of free-throw attempts. None where the box reading lacks a figure."""
+    v = x[2:12]
+    if len(v) < 10 or any(n is None for n in (v[0], v[1], v[2], v[3], v[5], v[6], v[7], v[8])): return None
+    return (v[0] - v[2] + v[3] + 0.475 * v[1]) + (v[5] - v[7] + v[8] + 0.475 * v[6])
+def poss_at(g, ts):
+    """Possessions played up to a moment: the newest complete box reading at or before it, no more than three minutes old."""
+    best = None
+    for x in g.get('x') or []:
+        if x[0] > ts: break
+        if ts - x[0] <= 180 and poss_of(x) is not None: best = poss_of(x)
+    return best
+def held_for(g, start, ts, t, hold, hold_by):
+    """Whether a gap that reached the threshold at `start` (side, wall time, game minute) has held long enough by `ts`."""
+    if hold_by == 'clock': return t - start[2] >= hold / 60 - 0.05
+    if ts - start[1] < hold - HOLD_SLACK: return False
+    if hold_by == 'live': return t - start[2] >= HOLD_LIVE
+    if hold_by == 'poss':
+        p0, p1 = poss_at(g, start[1]), poss_at(g, ts)
+        return p0 is not None and p1 is not None and p1 - p0 >= HOLD_POSS
+    return True
+def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False, again=None, last=T1, markets=MARKETS, guard=True, hold=HOLD, hold_by='wall', margin=MARGIN, fresh=False):
     """First reading per market and side whose averaged gap has sat k deviations from zero for `hold` seconds, at a price
     the chance clears on that reading. hold=0 fires on the first reading at k, the rule before November 25.
     arm: if given, the reading before it must already have been that many deviations out on the same side.
@@ -180,13 +209,21 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
     last: the last elapsed minute a signal may fire at.
     markets: the markets a signal may fire in. The rule is the game total alone; team totals are kept as a comparison.
     Team totals, where asked for, are implied from the live total and spread and priced at an estimate.
-    guard: False judges readings taken on a stalled score feed as well (see stalled_at), kept as a comparison."""
+    guard: False judges readings taken on a stalled score feed as well (see stalled_at), kept as a comparison.
+    hold_by: how the hold is counted. 'wall' is the rule: seconds by the wall clock. The others are comparisons: 'clock'
+    counts the game clock (hold/60 minutes of play); 'live' is the wall clock plus HOLD_LIVE minutes of play inside it;
+    'poss' is the wall clock plus HOLD_POSS possessions inside it, from the box readings (no box readings, no signal).
+    margin: points of chance over break-even the price must leave; None drops the price test.
+    fresh: True skips a reading whose line has stood STALE_SEC seconds while STALE_PTS points were scored."""
     yard = yard or YARD
     if not g.get('pre'): return []
     tot, hsp = g['pre']; out = []; fired = set(); count = {}; fin = g.get('final'); prev_ok = {}; wide = abs(hsp) >= BLOW_SPREAD; since = {}; last_ts = None
     if wide and not lopsided: return []
+    stood = None   # (ts, points, line) when the sportsbook total last changed
     for r in rolled(g, window, guard):
         t, a, h, f, bt, bs = r['t'], r['a'], r['h'], r['f'], r['bt'], r['bs']
+        if stood is None or stood[2] != bt: stood = (r['ts'], a + h, bt)
+        if fresh and r['ts'] - stood[0] >= STALE_SEC and a + h - stood[1] >= STALE_PTS: prev_ok = {}; since = {}; last_ts = None; continue
         if r['avg'] is None or not (T0 <= t <= last) or (wide or abs(a - h) >= BLOW_LEAD) != lopsided: prev_ok = {}; since = {}; last_ts = None; continue
         if last_ts is not None and r['ts'] - last_ts > RUN_BREAK: since = {}   # a hole in the readings: the hold starts again
         last_ts = r['ts']; now_ok = {}
@@ -202,13 +239,13 @@ def signals_for(g, yard=None, k=BUY_DEV, window=WINDOW, arm=None, lopsided=False
             if key not in markets: continue
             paid = price if price is not None else -115; size = abs(dev)
             # since: when this market's average first reached k on this side, in the unbroken run it is in now
-            if size >= k: since[key] = since[key] if since.get(key, (None,))[0] == side else (side, r['ts'])
+            if size >= k: since[key] = since[key] if since.get(key, (None,))[0] == side else (side, r['ts'], t)
             else: since.pop(key, None)
-            held = hold <= 0 or (key in since and r['ts'] - since[key][1] >= hold - HOLD_SLACK)
+            held = hold <= 0 or (key in since and held_for(g, since[key], r['ts'], t, hold, hold_by))
             if again is not None:   # the gap has closed, or flipped: this market can be bought again
                 for held in ('Over', 'Under'):
                     if (key, held) in fired and (held != side or size < again): fired.discard((key, held))
-            if size <= 0 or p < break_even(paid) + MARGIN: continue
+            if size <= 0 or (margin is not None and p < break_even(paid) + margin): continue
             now_ok[(key, side)] = size
             if size >= k and held and (arm is None or prev_ok.get((key, side), 0) >= arm) and (key, side) not in fired:
                 fired.add((key, side)); count[(key, side)] = nth = count.get((key, side), 0) + 1
@@ -256,6 +293,15 @@ class Store:
             self.days[date] = {g['id']: g for g in d['games']}
             if d.get('yardstick'): self.yards[date] = d['yardstick']
         return self.days[date]
+    def add_box(self, date, ev_id, box):
+        """A box reading for a game already on the day: [time, minute, then for away and for home: field-goal attempts,
+        free-throw attempts, offensive rebounds, turnovers, fouls]. Kept beside the readings, one a minute, and read by
+        nothing that decides a signal under the rule."""
+        g = self.day(date).get(ev_id)
+        if g is None or not box: return
+        x = g.setdefault('x', [])
+        full = box[4] is not None and box[9] is not None   # rebounds and turnovers arrive every other minute: such a reading is always kept
+        if not x or full or box[0] - x[-1][0] >= BOX_KEEP: x.append(box)
     def add(self, date, ev_id, away, home, ar, hr, pre, status, final, reading):
         g = self.day(date).setdefault(ev_id, dict(id=ev_id, date=date, away=away, home=home, ar=ar, hr=hr, pre=None, status='', final=None, r=[]))
         if pre and pre[0] is not None and pre[1] is not None: g['pre'] = pre
@@ -331,6 +377,43 @@ def migrate(out):
                'history': [{'since': d, 'version': v, 'change': why} for d, v, why in RULE_STARTS]}, open(path, 'w'))
     return True
 
+# Box readings: shot attempts come with the scoreboard at no cost; offensive rebounds, turnovers and fouls need one small
+# request a team, made no more than once every BOX_EVERY seconds a game. They are for research (pace against shooting,
+# possession-counted holds) and must never get in the way of the readings: any failure is skipped, and after a poor
+# round the extra requests stop for BOX_REST seconds. BOX_EVERY = 0 switches them off.
+BOX_EVERY, BOX_KEEP, BOX_REST = 120, 55, 900
+BOX_STATE = {'due': {}, 'rest_until': 0}
+def stat_of(comp, name):
+    for s in comp.get('statistics') or []:
+        if s.get('name') == name: return num(s.get('displayValue'))
+    return None
+def box_extra(ev_id, team_id):
+    """(offensive rebounds, turnovers, fouls) for one team in one game, or None."""
+    try:
+        got = {}
+        for cat in (get(BX % (ev_id, ev_id, team_id, int(time.time()))).get('splits') or {}).get('categories', []):
+            for s in cat.get('stats', []):
+                if s.get('name') in ('offensiveRebounds', 'totalTurnovers', 'fouls') and s.get('value') is not None: got[s['name']] = s['value']
+        return [got.get('offensiveRebounds'), got.get('totalTurnovers'), got.get('fouls')]
+    except Exception:
+        return None
+def boxes_for(live_games, now):
+    """Box readings for the live games: {event id: reading}. Shot attempts for every game; the rest where it is due."""
+    out = {}; asks = []
+    for e in live_games:
+        cs = {x['homeAway']: x for x in e['competitions'][0]['competitors']}
+        if 'away' not in cs or 'home' not in cs: continue
+        shots = [stat_of(cs[s], n) for s in ('away', 'home') for n in ('fieldGoalsAttempted', 'freeThrowsAttempted')]
+        if any(v is None for v in shots): continue
+        out[e['id']] = dict(shots=shots, extra={})
+        if BOX_EVERY and now >= BOX_STATE['rest_until'] and now >= BOX_STATE['due'].get(e['id'], 0):
+            BOX_STATE['due'][e['id']] = now + BOX_EVERY; asks += [(e['id'], 'away', cs['away']['team']['id']), (e['id'], 'home', cs['home']['team']['id'])]
+    if asks:
+        with ThreadPoolExecutor(6) as ex: got = list(ex.map(lambda q: box_extra(q[0], q[2]), asks))
+        for (ev, side, _), v in zip(asks, got):
+            if v is not None: out[ev]['extra'][side] = v
+        if sum(v is None for v in got) > len(got) / 2: BOX_STATE['rest_until'] = now + BOX_REST; print('box requests resting', flush=True)
+    return out
 def odds_for(ev_id):
     pre = live = None
     try:
@@ -348,6 +431,8 @@ def poll(store, pre_cache):
     now = int(time.time()); date = slate_date(); evs = get(SB % (date, now)).get('events', [])
     live_games = [e for e in evs if e['status']['type']['state'] == 'in']
     with ThreadPoolExecutor(8) as ex: odds = dict(zip([e['id'] for e in live_games], ex.map(odds_for, [e['id'] for e in live_games])))
+    try: boxes = boxes_for(live_games, now)
+    except Exception as err: boxes = {}; print('box error', str(err)[:80], flush=True)
     n_in = n_pre = 0
     for e in evs:
         st = e['status']; state = st['type']['state']; c = e['competitions'][0]; cs = {x['homeAway']: x for x in c['competitors']}
@@ -362,6 +447,10 @@ def poll(store, pre_cache):
             t = round(elapsed(st.get('period'), st.get('displayClock')), 2)
             reading = [now, t, a, h] + (live if live else [None, None, None, None]) if (st.get('period') or 0) <= 2 else None
             store.add(date, e['id'], name('away'), name('home'), rank('away'), rank('home'), pre_cache.get(e['id']), st['type'].get('shortDetail') or 'Live', None, reading)
+            b = boxes.get(e['id'])
+            if b and reading:
+                ea, eh = b['extra'].get('away') or [None] * 3, b['extra'].get('home') or [None] * 3
+                store.add_box(date, e['id'], [now, t, b['shots'][0], b['shots'][1]] + ea + [b['shots'][2], b['shots'][3]] + eh)
         elif state == 'post':
             store.add(date, e['id'], name('away'), name('home'), rank('away'), rank('home'), pre_cache.get(e['id']), 'Final', [a, h], None)
     return n_in, n_pre
