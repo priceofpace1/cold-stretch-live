@@ -32,7 +32,7 @@ export function boardWords(d) {
   }
   const when = d.today ? 'today' : `on ${d.weekday}`;
   const head = s.n ? `${plural(s.n, 'signal')} ${when}: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : `No signals ${when}.`;
-  const what = 'A signal is logged when the sportsbook’s live total stays well away from the fair number, at a price that pays.';
+  const what = 'A signal is logged when the sportsbook’s live total stays well away from the fair number and the model’s chance clears the price’s break-even by 5 points.';
   const next = d.today && d.ahead ? ` ${d.ahead === 1 ? 'One game is' : `${d.ahead} games are`} still to tip; the next is at ${d.nextTip}.` : '';
   const scored = d.afterFact && s.n ? ' This slate was scored after the fact, under a rule set later.' : '';
   return { head, sub: `${what} ${apart.replace('have been', d.today ? 'have been' : 'were')}${next}${scored}` };
@@ -113,7 +113,7 @@ const RULE_SHORT = Object.freeze({
 export function ruleLine(d) {
   const short = RULE_SHORT[d.version];
   if (!short) return '';
-  const said = `${short(d.dev ? ` (${(2 * d.dev).toFixed(1)} points ${d.current ? 'today' : 'that day'})` : '')}, at a price that pays.`;
+  const said = `${short(d.dev ? ` (${(2 * d.dev).toFixed(1)} points ${d.current ? 'today' : 'that day'})` : '')}, and the model’s chance at least 5 points over the price’s break-even.`;
   if (d.before) return `From before the record began, and judged afterwards under the rule now in force: ${said}`;
   return `${d.current ? `Signal rule since ${d.since}` : `Signal rule on this slate (since ${d.since})`}: ${said}`;
 }

@@ -101,9 +101,9 @@ test('the rule is said in one line, for the rule of the slate in view', async ()
   const now = RULE_HISTORY[RULE_HISTORY.length - 1];
   for (const r of RULE_HISTORY) { assert.ok(RULE_BRIEF[r.version], `a table line for ${r.version}`); assert.ok(ruleLine({ version: r.version, since: 'x' }), `a board line for ${r.version}`); }
   assert.equal(ruleLine({ version: now.version, since: 'Nov 25', current: true, dev: 1.337 }),
-    'Signal rule since Nov 25: three-minute average gap of 2 deviations (2.7 points today), held 2 minutes, minutes 4 to 34, at a price that pays.');
+    'Signal rule since Nov 25: three-minute average gap of 2 deviations (2.7 points today), held 2 minutes, minutes 4 to 34, and the model’s chance at least 5 points over the price’s break-even.');
   assert.equal(ruleLine({ version: '2026-11-22.1', since: 'Nov 22', dev: 1.46 }),
-    'Signal rule on this slate (since Nov 22): three-minute average gap of 2 deviations (2.9 points that day), logged when first reached, minutes 4 to 34, at a price that pays.');
+    'Signal rule on this slate (since Nov 22): three-minute average gap of 2 deviations (2.9 points that day), logged when first reached, minutes 4 to 34, and the model’s chance at least 5 points over the price’s break-even.');
   assert.match(ruleLine({ version: now.version, since: 'Nov 25', before: true }), /^From before the record began, and judged afterwards under the rule now in force: three-minute average gap of 2 deviations, held 2 minutes/);
   assert.equal(ruleLine({ version: 'nope' }), '');
 });

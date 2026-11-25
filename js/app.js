@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=29';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=29';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=29';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=29';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=29';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=29';
-import { cardModel, drawCard } from './card.js?v=29';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=30';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=30';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=30';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=30';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=30';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=30';
+import { cardModel, drawCard } from './card.js?v=30';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -981,6 +981,21 @@ function renderRecord() {
   const sides = [['Overs', tally(live.filter((s) => s.side === 'Over'))], ['Unders', tally(live.filter((s) => s.side === 'Under'))]].filter((x) => x[1] !== '–');
   $('#r-sides').textContent = sides.map((x) => `${x[0]} ${x[1]}.`).join(' ') + (net.size - ahead - behind ? ` ${plural(net.size - ahead - behind, 'game')} level.` : '');
   $('#r-sides').hidden = !sides.length;
+  // The figures a careful reader asks for next: what a unit risked has returned, at what prices, and how deep the worst run went.
+  if (settled.length) {
+    const byTime = [...settled].sort((a, b) => a.ts - b.ts); let bal = 0, peak = 0, worst = 0, run = 0, longest = 0;
+    for (const s of byTime) { bal += pay(s); peak = Math.max(peak, bal); worst = Math.min(worst, bal - peak); run = s.result === 'Lost' ? run + 1 : 0; longest = Math.max(longest, run); }
+    const be = settled.reduce((a, s) => a + (s.price > 0 ? 100 / (s.price + 100) : -s.price / (100 - s.price)), 0) / settled.length; // average break-even of the prices taken
+    const avgOdds = be >= 0.5 ? -Math.round((100 * be) / (1 - be)) : Math.round((100 * (1 - be)) / be);
+    $('#r-stats').textContent = `Return on each unit risked: ${units >= 0 ? '+' : '−'}${Math.abs((100 * units) / settled.length).toFixed(1)}%. Win rate ${((100 * won) / settled.length).toFixed(1)}% against a break-even of ${(100 * be).toFixed(1)}% at the prices taken (average ${avgOdds > 0 ? '+' : '−'}${Math.abs(avgOdds)}). Worst run from a high point: ${worst ? '−' : ''}${Math.abs(worst).toFixed(1)} units. Longest losing streak: ${longest}.`;
+  }
+  $('#r-stats').hidden = !settled.length;
+  // Every signal as it was logged, for anyone who wants to check the arithmetic themselves.
+  const cols = ['date', 'logged_utc', 'game_id', 'matchup', 'market', 'side', 'line', 'price', 'fair', 'deviations', 'stated_chance_pct', 'game_minute', 'score_when_logged', 'rule', 'scored', 'result', 'final_total', 'units', 'counted_in_record'];
+  const cell = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const lines = [...L].sort((a, b) => a.ts - b.ts).map((s) => [s.date, new Date(s.ts * 1000).toISOString(), s.game, s.matchup, s.mkt, s.side, s.line, s.price, s.fair, s.dev, s.chance, s.t == null ? '' : Number(s.t).toFixed(1), s.score, s.rule || '', s.date >= RULES.liveSince ? 'live' : 'after the fact',
+    s.result, s.final, s.result === 'Won' || s.result === 'Lost' ? pay(s).toFixed(2) : '', s.date >= RULES.liveSince && gameTotal(s) && !s.fault ? 'yes' : s.fault ? 'no: stalled score feed' : gameTotal(s) ? 'no: before the record began' : 'no: team totals were dropped'].map(cell).join(','));
+  $('#ledger-csv').href = `data:text/csv;charset=utf-8,${encodeURIComponent([cols.join(','), ...lines].join('\n'))}`;
   // Signals logged on a stalled score feed, before the rule stopped judging such readings, are kept and shown but not counted.
   const fWon = faults.filter((s) => s.result === 'Won').length, fLost = faults.filter((s) => s.result === 'Lost').length, fOpen = faults.filter((s) => s.result === 'Pending').length;
   $('#r-faults').hidden = !faults.length;
@@ -1215,11 +1230,12 @@ function renderAbout() {
       p('It knows nothing about injuries, foul trouble or who is on the floor.')),
     row('What counts as a signal',
       p(`One reading is mostly timing: a basket moves fair before the sportsbook reprices. So the gap is averaged over three minutes and measured in deviations, the usual size of that average on earlier slates, about `, devEl, ' points for a game total.'),
-      p(`A signal is logged once the average has stayed ${RULES.buyDev} or more deviations out for ${RULES.holdSec / 60} minutes, between minute ${RULES.firstMinute} and minute ${RULES.lastMinute}, at a price the model’s chance beats by ${Math.round(RULES.margin * 100)} points on the quote showing then. A gap that has only just appeared is noise more often than not: on the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the ones that had not were close to break-even. Signals are off when the pregame spread is ${RULES.blowoutSpread} or more or the lead is ${RULES.blowoutLead} or more, because the fair number runs high in those games.`)),
+      p(`A signal is logged once the average has stayed ${RULES.buyDev} or more deviations out for ${RULES.holdSec / 60} minutes, between minute ${RULES.firstMinute} and minute ${RULES.lastMinute}, at a price the model’s chance beats by ${Math.round(RULES.margin * 100)} points on the quote showing then. That chance runs high and should not be read as a measured probability: across every recorded game-minute through November 25, where the model gave its side 55 to 65%, the side won 3 to 4 points less often than stated, and at signals the difference has been larger. The test works as a guard against poor prices, not as a measured edge. A gap that has only just appeared is noise more often than not: on the slates recorded through November 24, signals that had held two minutes won 22 of 31, and the ones that had not were close to break-even. Signals are off when the pregame spread is ${RULES.blowoutSpread} or more or the lead is ${RULES.blowoutLead} or more, because the fair number runs high in those games.`)),
     row('The record',
       p('Every signal is logged when it fires and settled on the final score, wins and losses alike. Nothing is deleted afterwards. A signal logged while the score feed was stalled stays in the ledger, marked, and is left out of the figures; the mark is applied by a fixed rule, not by hand. Signals are on the game total and settled at the sportsbook’s live price. Team totals were tracked until November 21 at an estimated price and then dropped; the ones already logged stay on the Record page, counted apart.'),
       p(`The record is short. Signals have been scored live since ${longDay(RULES.liveSince)}, and a few weeks of results prove very little. `, link('See the record', '#/record'), '.')),
     row('How the rule has changed',
+      p(`The rule is frozen as of ${monthDay(RULE_HISTORY[RULE_HISTORY.length - 1].since)}. It will be reviewed, not automatically changed, when it has 150 graded signals and again on January 10. Other versions of it run on the same readings and are shown on the Record page; none is promoted on past results alone. Any change to which signals qualify gets a new version and its own record.`),
       p('The rule changes only for a reason given here, and between slates; the one time it was installed during a slate is noted in its entry below. Signals already logged stay in the record under the rule of their day.'),
       ...RULE_HISTORY.map((x) => p(`${longDay(x.since)}. ${x.change}`))),
     row('What this is not',
@@ -1381,7 +1397,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=29')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=30')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

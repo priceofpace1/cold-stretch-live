@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=29">
+<link rel="stylesheet" href="css/app.css?v=30">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -66,7 +66,7 @@
       <div class="primer-rows">
         <p><b>Two numbers.</b> Orange is the sportsbook’s live total. Blue is the fair number: the score so far plus a normal pace for the time left.</p>
         <p><b>One gap.</b> Each chart follows the gap between them through the game. Inside the shaded band it is too small to mean anything.</p>
-        <p><b>A signal.</b> When the three-minute average stays outside the band for two more minutes, at a price that pays, it is logged and graded on the final score.</p>
+        <p><b>A signal.</b> When the three-minute average stays outside the band for two more minutes, and the model’s chance clears the price’s break-even by 5 points, it is logged and graded on the final score.</p>
       </div>
       <p class="primer-foot"><button type="button" class="key is-primary" id="primer-ok">Got it</button><a href="#/about">How it works, in full</a></p>
     </aside>
@@ -252,6 +252,7 @@
       <div><dt>Same bets a minute later</dt><dd id="r-late">–</dd></div>
     </dl>
     <p class="note" id="r-sides" hidden></p>
+    <p class="note" id="r-stats" hidden></p>
     <p class="note" id="r-faults" hidden></p>
 
     <div class="block" id="units-block" hidden>
@@ -366,6 +367,7 @@
         </div>
       </div>
       <p class="note" id="ledger-count"></p>
+      <p class="note"><a href="#/record" id="ledger-csv" download="price-of-pace-signals.csv">Download every signal as a spreadsheet file (CSV)</a>. One row per signal as it was logged: time, game, side, line, price, fair number, rule, result. Rows are never edited after logging; a signal left out of the figures is marked, not removed.</p>
       <div class="sheet" id="ledger-sheet">
         <table>
           <thead><tr><th>Slate</th><th>Game</th><th>Market</th><th>Side</th><th>Clock</th><th>Score</th><th class="r">Line</th><th class="r">Price</th><th class="r">Fair</th><th class="r">Deviations</th><th class="r">Chance</th><th class="r">Final</th><th>Result</th></tr></thead>
@@ -408,7 +410,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=29"></script>
+<script type="module" src="js/app.js?v=30"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {
