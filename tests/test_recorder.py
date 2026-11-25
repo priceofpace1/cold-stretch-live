@@ -102,6 +102,48 @@ class Recording(unittest.TestCase):
         minute = self.game([4] * 8)
         self.assertEqual(held(minute)[0]['ts'] - self.total(minute)[0]['ts'], 120)
 
+    def test_comparison_rules_count_the_hold_other_ways_and_leave_the_rule_alone(self):
+        held = lambda g, **kw: [s for s in record.signals_for(g, **kw) if s['mkt'] == 'total']
+        run = self.game([4] * 14, every=30)
+        self.assertEqual([s['ts'] for s in held(run)], [270])
+        self.assertEqual([s['ts'] for s in held(run, hold_by='live')], [270], 'play went on through the hold')
+        self.assertGreaterEqual(held(run, hold_by='clock')[0]['ts'], 270)
+        # a stoppage: from the sixth reading the clock and the score stand for three minutes while the gap stays
+        stop = self.game([4] * 12, every=30)
+        for r in stop['r'][6:]: r[1], r[2], r[3], r[4] = stop['r'][5][1], stop['r'][5][2], stop['r'][5][3], stop['r'][5][4]
+        self.assertEqual(len(held(stop)), 1, 'two minutes by the wall clock is the rule, stoppage or not')
+        self.assertEqual(held(stop, hold_by='live'), [], 'no play in the hold')
+        self.assertEqual(held(stop, hold_by='clock'), [])
+        # possessions: counted from box readings, and nothing without them
+        self.assertEqual(held(run, hold_by='poss'), [])
+        box = lambda i, n: [i * 30, 20 + i / 2, n, 0, 0, 0, 0, n, 0, 0, 0, 0]
+        run['x'] = [box(i, i) for i in range(14)]          # two possessions a reading: four inside any two minutes
+        self.assertEqual([s['ts'] for s in held(run, hold_by='poss')], [270])
+        run['x'] = [box(i, 3) for i in range(14)]          # none played
+        self.assertEqual(held(run, hold_by='poss'), [])
+        self.assertEqual(record.poss_of([0, 10.0, 58, 7, 8, 6, 20, 43, 15, 8, 14, 13]), (58 - 8 + 6 + 0.475 * 7) + (43 - 8 + 14 + 0.475 * 15))
+        self.assertIsNone(record.poss_of([0, 10.0, 58, 7, None, None, None, 43, 15, None, None, None]))
+        # the price test can be left out, as a comparison
+        dear = self.game([4] * 14, every=30, price=-400)
+        self.assertEqual(held(dear), [])
+        self.assertEqual(len(held(dear, margin=None)), 1)
+        # a sportsbook total that stands two minutes while six points go up is passed over by the fresh-line comparison
+        stale = self.game([4] * 14, every=30)
+        for r in stale['r'][5:]: r[4] = stale['r'][5][4]
+        self.assertTrue(held(stale))
+        self.assertFalse([s for s in held(stale, fresh=True) if s['ts'] <= held(stale)[0]['ts']])
+
+    def test_box_readings_are_kept_beside_the_readings(self):
+        with tempfile.TemporaryDirectory() as out:
+            st = record.Store(out)
+            st.add('20261126', 'g1', 'Away U', 'Home St', None, None, [150, 0], 'Live', None, [0, 5.0, 8, 9, 140.5, -1.5, -110, -110])
+            shots = lambda ts: [ts, 5.0, 10, 2, None, None, None, 9, 3, None, None, None]
+            full = lambda ts: [ts, 5.0, 10, 2, 1, 2, 3, 9, 3, 0, 1, 4]
+            st.add_box('20261126', 'g1', shots(0)); st.add_box('20261126', 'g1', shots(30)); st.add_box('20261126', 'g1', full(60)); st.add_box('20261126', 'g1', full(90)); st.add_box('20261126', 'nope', full(90))
+            x = st.day('20261126')['g1']['x']
+            self.assertEqual([r[0] for r in x], [0, 60, 90], 'one a minute, and every reading that has rebounds and turnovers')
+            self.assertEqual(st.day('20261126')['g1']['r'][0][:4], [0, 5.0, 8, 9], 'the readings themselves are untouched')
+
     def test_price_thresholds_windows_and_yardsticks(self):
         held = [2.7] * 5
         self.assertEqual(len(self.total(self.game(held))), 1)
