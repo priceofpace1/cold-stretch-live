@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=25';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=25';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=25';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=25';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=25';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=25';
-import { cardModel, drawCard } from './card.js?v=25';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, clockStoppedSec, recordOf } from './model.js?v=26';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=26';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=26';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=26';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=26';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords } from './words.js?v=26';
+import { cardModel, drawCard } from './card.js?v=26';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -485,8 +485,40 @@ function signalRow(g, s, withGame) {
   return b;
 }
 
-/** Whether an open signal can still be bet on the quote showing now. Only such a signal asks anything of the reader. */
-const onNow = (g, s) => s.result === 'Pending' && g.state === 'in' && isToday() && signalNow(s, nowRow(g)).state === 'on';
+// A signal is put forward as a bet once its gap has held: the three-minute average two deviations out, on one side, at
+// every reading for HOLD_SEC seconds. On the slates recorded through November 24 the signals that had held two minutes won
+// 22 of 31; the ones that had only just appeared did little better than break even (claude/threshold-persistence-backtest).
+const HOLD_SEC = 120, HOLD_SLACK = 15, RUN_BREAK = 150, RUN_OLD_SEC = 300;
+/**
+ * How long the three-minute average has stood two deviations out on one side without a break, up to the newest reading,
+ * and where it stands: { sec, dev }, or null when it is not there now. The newest readings of a page just opened have no
+ * average yet; they are passed over as long as the last one that has is recent, since the quote showing is tested apart.
+ */
+function runOf(g, side) {
+  const key = `${g.id}:run:${side}`;
+  if (S.memo.has(key)) return S.memo.get(key);
+  const track = tracked(g), devOf = (r) => (r.markets && r.markets.total ? r.markets.total.avgDev : null);
+  let out = null;
+  if (track.length) {
+    const end = track[track.length - 1].ts;
+    let i = track.length - 1, start = null, last = null, dev = null;
+    while (i >= 0 && devOf(track[i]) == null && end - track[i].ts <= RUN_OLD_SEC) i -= 1;
+    for (; i >= 0; i -= 1) {
+      const r = track[i], d = devOf(r);
+      if (d == null || !r.eligible || (last == null ? end - r.ts > RUN_OLD_SEC : last - r.ts > RUN_BREAK)) break;
+      if (!(side === 'Over' ? d >= RULES.buyDev : d <= -RULES.buyDev)) break;
+      if (dev == null) dev = Math.abs(d);
+      start = last = r.ts;
+    }
+    if (start != null) out = { sec: end - start, dev };
+  }
+  S.memo.set(key, out);
+  return out;
+}
+const heldNow = (g, side) => { const run = runOf(g, side); return !!run && run.sec >= HOLD_SEC - HOLD_SLACK; };
+
+/** Whether an open signal is a bet now: its gap has held, and it still passes on the quote showing. Only such a signal asks anything of the reader. */
+const onNow = (g, s) => s.result === 'Pending' && g.state === 'in' && isToday() && signalNow(s, nowRow(g)).state === 'on' && heldNow(g, s.side);
 
 /**
  * A signal that can be bet now, as the bet itself: the side, line and price on the quote showing, where the game stands,
@@ -496,11 +528,11 @@ function nowSignalRow(g, s) {
   const b = h('button'); b.type = 'button';
   const now = signalNow(s, nowRow(g)), age = Date.now() / 1000 - s.at, who = h('span', 'who');
   const price = now.quoted ? ` at ${now.price > 0 ? '+' : '−'}${Math.abs(Math.round(now.price))}` : '';
-  const ago = agoWords(age), from = now.line !== s.line ? ` at ${f1(s.line)}` : '';
+  const ago = agoWords(age), from = now.line !== s.line ? ` at ${f1(s.line)}` : '', run = runOf(g, s.side);
   who.append(h('span', 'bet-call', `${s.side} ${f1(now.line)}${price}`),
     h('span', 'feed-sub', `${g.away.name} at ${g.home.name}, ${clockText(g)}, ${g.away.pts}–${g.home.pts}`),
-    h('span', 'feed-sub', `Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`));
-  b.append(h('span', 'when', age < NEW_SEC ? 'New' : 'Open'), who, h('span', 'what', `fair ${f1(nowRow(g).markets.total.fair)}`));
+    h('span', 'feed-sub', `Held ${Math.floor(run.sec / 60)} min at ${run.dev.toFixed(1)} deviations. Logged${ago ? ` ${ago}` : ''}${from || (ago ? '' : ` at ${clockLabel(s.minute)}`)}.`));
+  b.append(h('span', 'when', run.sec < HOLD_SEC + NEW_SEC ? 'New' : 'Open'), who, h('span', 'what', `fair ${f1(nowRow(g).markets.total.fair)}`));
   b.addEventListener('click', () => go(gameHash(g.id, 'total')));
   return b;
 }
@@ -513,6 +545,7 @@ function logRow(g, s) {
   if (live) {
     const now = signalNow(s, nowRow(g));
     how = now.state === 'gone' ? 'edge gone' : now.state === 'none' ? 'no live line' : now.state === 'off' ? (now.why === 'late' ? `past minute ${RULES.lastMinute}` : `lead of ${RULES.blowoutLead} or more`) : 'still on';
+    if (now.state === 'on') { const run = runOf(g, s.side); how = !run ? 'gap under 2 now' : run.sec < HOLD_SEC - HOLD_SLACK ? `building, ${Math.floor(run.sec / 60)} of ${HOLD_SEC / 60} min` : 'still on'; }
   }
   const price = s.price == null || s.priced === 'assumed' ? '' : ` at ${s.price > 0 ? '+' : '−'}${Math.abs(Math.round(s.price))}`;
   b.append(h('span', `when ${s.result === 'Won' ? 'won' : s.result === 'Lost' ? 'lost' : open ? 'is-open' : ''}`, open ? 'Open' : s.result),
@@ -569,14 +602,14 @@ function renderWatch(all) {
     if (!ref) continue;
     measured += 1;
     const m = ref.markets.total, side = m.avgDev > 0 ? 'Over' : 'Under';
-    if (Math.abs(m.avgDev) < WATCH_FROM || stoppedSec(g) >= STOPPED_SEC || signalsOf(g).some((s) => s.result === 'Pending' && s.market === 'total' && s.side === side)) continue;
-    rows.push({ g, m, age: nowSec - ref.ts });
+    if (Math.abs(m.avgDev) < WATCH_FROM || stoppedSec(g) >= STOPPED_SEC || signalsOf(g).some((s) => s.market === 'total' && s.side === side && onNow(g, s))) continue; // a bet now is in the list beside this one
+    rows.push({ g, m, age: nowSec - ref.ts, run: runOf(g, side) });
   }
   rows.sort((a, b) => Math.abs(b.m.avgDev) - Math.abs(a.m.avgDev));
   $('#watch').hidden = !rows.length;
-  $('#watch').replaceChildren(...rows.slice(0, WATCH_SHOWN).map(({ g, m, age }) => {
+  $('#watch').replaceChildren(...rows.slice(0, WATCH_SHOWN).map(({ g, m, age, run }) => {
     const b = h('button'); b.type = 'button';
-    const w = watchWords({ dev: m.avgDev, lean: RULES.leanDev, book: m.line, fair: m.fair }), tone = m.avgDev > 0 ? 'is-over' : 'is-under';
+    const w = watchWords({ dev: m.avgDev, lean: RULES.leanDev, book: m.line, fair: m.fair, buy: RULES.buyDev, run: run ? run.sec : null, hold: HOLD_SEC - HOLD_SLACK }), tone = m.avgDev > 0 ? 'is-over' : 'is-under';
     const who = h('span', 'who'), what = h('span', 'what'), meter = h('span', 'meter'), fill = h('i', tone);
     who.append(h('span', '', `${g.away.name} at ${g.home.name}, ${clockText(g)}, ${g.away.pts}–${g.home.pts}${age >= 90 ? `, as of ${Math.round(age / 60)} min ago` : ''}`), h('span', `feed-now${w.on ? ' is-on' : ''}`, w.text));
     fill.style.width = `${Math.min(100, Math.round((Math.abs(m.avgDev) / RULES.buyDev) * 100))}%`;
@@ -586,10 +619,11 @@ function renderWatch(all) {
     b.addEventListener('click', () => go(gameHash(g.id, 'total')));
     return b;
   }));
-  $('#watch-note').textContent = rows.length ? `The three-minute average in deviations, and how far it is toward the ${RULES.buyDev} a signal needs. From ${RULES.leanDev} a game is on watch.`
+  const held = ` A signal moves to Bet now once its gap has held ${HOLD_SEC / 60} minutes. The record still logs it when it first appears, until the rule changes between slates.`;
+  $('#watch-note').textContent = (rows.length ? `The three-minute average in deviations, and how far it is toward the ${RULES.buyDev} a signal needs. From ${RULES.leanDev} a game is on watch.`
     : !inPlay ? 'No live game with a line is inside the signal window right now.'
       : !measured ? 'The averages are still forming. They need about three minutes of readings.'
-      : `Nothing is within one deviation of a signal across ${plural(measured, 'live game')} with a line in the window.`;
+      : `Nothing is within one deviation of a signal across ${plural(measured, 'live game')} with a line in the window.`) + held;
 }
 
 function renderBoard() {
@@ -1216,7 +1250,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=25')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=26')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

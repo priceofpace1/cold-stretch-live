@@ -58,7 +58,11 @@ export function signalWords(now, limits) {
  * average in deviations. Returns { side, on, text }: `on` from the watch tier up.
  */
 export function watchWords(d) {
-  const side = d.dev > 0 ? 'over' : 'under', on = Math.abs(d.dev) >= d.lean;
+  const side = d.dev > 0 ? 'over' : 'under', on = Math.abs(d.dev) >= d.lean, nums = `book ${d.book.toFixed(1)}, fair ${d.fair.toFixed(1)}`;
+  if (d.run != null && d.buy != null && Math.abs(d.dev) >= d.buy) { // far enough out: what is left is the hold
+    const need = Math.round(d.hold / 60), had = Math.floor(d.run / 60);
+    return { side, on: true, text: d.run < d.hold ? `Building on the ${side}, ${had} of ${need} minutes: ${nums}` : `Held ${had} min on the ${side}, not a bet at this line and price: ${nums}` };
+  }
   return { side, on, text: `${on ? 'On watch for the' : 'Leaning to the'} ${side}: book ${d.book.toFixed(1)}, fair ${d.fair.toFixed(1)}` };
 }
 

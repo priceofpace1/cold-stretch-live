@@ -79,4 +79,10 @@ test('with the record beside the headline, the live standfirst stays to the day'
   assert.match(boardWords({ ...base, record: false }).sub, /1\.1 points apart/);
   assert.deepEqual(watchWords({ dev: 1.72, lean: 1.5, book: 142.5, fair: 145.6 }), { side: 'over', on: true, text: 'On watch for the over: book 142.5, fair 145.6' });
   assert.deepEqual(watchWords({ dev: -1.2, lean: 1.5, book: 150.5, fair: 148.9 }), { side: 'under', on: false, text: 'Leaning to the under: book 150.5, fair 148.9' });
+  // two deviations out: what is left is the two-minute hold
+  const far = { dev: 2.3, lean: 1.5, buy: 2, hold: 105, book: 142.5, fair: 146.0 };
+  assert.equal(watchWords({ ...far, run: 60 }).text, 'Building on the over, 1 of 2 minutes: book 142.5, fair 146.0');
+  assert.equal(watchWords({ ...far, run: 0 }).text, 'Building on the over, 0 of 2 minutes: book 142.5, fair 146.0');
+  assert.equal(watchWords({ ...far, dev: -2.3, run: 250 }).text, 'Held 4 min on the under, not a bet at this line and price: book 142.5, fair 146.0');
+  assert.equal(watchWords({ ...far, run: null }).text, 'On watch for the over: book 142.5, fair 146.0');
 });
