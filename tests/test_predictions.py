@@ -31,8 +31,8 @@ class Predictions(unittest.TestCase):
 
     def test_fee_and_the_side_the_market_took(self):
         self.assertEqual(pm.fee(50), 1.75); self.assertEqual(pm.fee(56), 1.72); self.assertEqual(pm.fee(50, 0.5), 0.88); self.assertIsNone(pm.fee(None))
-        self.assertEqual(pm.side_taken('Over', 152.5, 155.2), 'model'); self.assertEqual(pm.side_taken('Over', 152.5, 152.9), 'sportsbook'); self.assertEqual(pm.side_taken('Over', 152.5, 151.0), 'against')
-        self.assertEqual(pm.side_taken('Under', 152.5, 151.0), 'model'); self.assertIsNone(pm.side_taken('Over', 152.5, None))
+        self.assertEqual(pm.side_taken('Over', 152.5, 155.2), 'toward'); self.assertEqual(pm.side_taken('Over', 152.5, 152.9), 'level'); self.assertEqual(pm.side_taken('Over', 152.5, 151.0), 'away')
+        self.assertEqual(pm.side_taken('Under', 152.5, 151.0), 'toward'); self.assertIsNone(pm.side_taken('Over', 152.5, None))
 
     def test_changed_quotes_are_stored_once(self):
         with tempfile.TemporaryDirectory() as out:
@@ -53,13 +53,14 @@ class Predictions(unittest.TestCase):
         s = before[0]; g['c'] = [[s['ts'] - 400, 99.0, 1, 1, 1, 2, 1, 1, None, None], [s['ts'] - 30, s['line'] + 2.7, s['line'] - 1, 61.0, 62.0, s['line'] + 1, 55.0, 56.0, 57.0, 58.0]]
         self.assertEqual([x['ts'] for x in record.signals_for(g) if x['mkt'] == 'total'], [x['ts'] for x in before], 'the rule does not read the market')
         cb = pm.at_signal(g, s, record.break_even)
-        self.assertEqual(cb['took'], 'model'); self.assertEqual(cb['quote'], [57.0, 58.0]); self.assertEqual(cb['book'], round(100 * record.break_even(s['price']), 1))
+        self.assertEqual(cb['took'], 'toward'); self.assertIn(cb['nearer'], ('model', 'sportsbook')); self.assertEqual(cb['quote'], [57.0, 58.0]); self.assertEqual(cb['book'], round(100 * record.break_even(s['price']), 1))
         self.assertEqual(cb['cb'], round(58.0 + pm.fee(58.0), 1) if s['side'] == 'Over' else round(43.0 + pm.fee(43.0), 1))
         self.assertIsNone(pm.at_signal(dict(g, c=[[s['ts'] - 400, 1, 1, 1, 1, 2, 1, 1, None, None]]), s, record.break_even), 'nothing in the two minutes before')
         with tempfile.TemporaryDirectory() as out:
+            self.assertFalse(record.PREDICTIONS_ON, 'off until the exchange has given written permission'); record.PREDICTIONS_ON = True; self.addCleanup(setattr, record, 'PREDICTIONS_ON', False)
             st = record.Store(out); st.days[g['date']] = {g['id']: g}; st.save()
-            row = next(x for x in json.load(open(os.path.join(out, 'ledger.json'))) if x['mkt'] == 'total'); self.assertEqual(row['cb']['took'], 'model')
-            lad = [r for r in json.load(open(os.path.join(out, 'ladder.json'))) if r['rule'] == 'signal-cb-model' and r['stage'] == json.load(open(os.path.join(out, 'ladder.json')))[0]['stage']]
+            row = next(x for x in json.load(open(os.path.join(out, 'ledger.json'))) if x['mkt'] == 'total'); self.assertEqual(row['cb']['took'], 'toward')
+            lad = [r for r in json.load(open(os.path.join(out, 'ladder.json'))) if r['rule'] == 'signal-cb-toward' and r['stage'] == json.load(open(os.path.join(out, 'ladder.json')))[0]['stage']]
             self.assertEqual(lad[0]['n'], 1)
 
 

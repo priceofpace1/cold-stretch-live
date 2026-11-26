@@ -12,7 +12,11 @@ What is kept, per game, in markets/<date>.json:
 A short row per minute also goes on the game in the day's track (see row()), for the page.
 
 Two kinds of number are kept apart everywhere. A quote is what the exchange listed for a contract. The estimated total is
-ours: the total at which the over would cost 50 cents, read between the two listed contracts either side of it."""
+ours: the total at which the over would cost 50 cents, read between the two listed contracts either side of it. It is a
+market-implied threshold, close to a median, and not a forecast of the final score.
+
+Switched off in record.py (PREDICTIONS_ON) until the exchange has given written permission: its Developer Agreement limits
+the API to a member's own trading and bars collecting, storing or sharing its data otherwise."""
 import datetime, difflib, json, os, re, time, urllib.request
 
 KX = 'https://api.elections.kalshi.com/trade-api/v2'
@@ -126,11 +130,12 @@ def row(now, lad, line):
 
 
 def side_taken(side, line, est):
-    """Where the prediction market stood against the sportsbook at a signal: 'model' when its estimated total is at least AGREE
-    points on the signal's side of the sportsbook's total, 'against' when at least AGREE points the other way, else 'sportsbook'."""
+    """The direction the prediction market leaned at a signal, against the sportsbook: 'toward' when its estimated total is at
+    least AGREE points on the signal's side of the sportsbook's total, 'away' when at least AGREE points the other way, else
+    'level'. Direction only: being on the model's side is not the same as being nearer the model (see `nearer` in at_signal)."""
     if est is None or line is None: return None
     a = (est - line) * (1 if side == 'Over' else -1)
-    return 'model' if a >= AGREE else 'against' if a <= -AGREE else 'sportsbook'
+    return 'toward' if a >= AGREE else 'away' if a <= -AGREE else 'level'
 
 
 def at_signal(g, s, break_even, mult=1.0):
@@ -138,7 +143,8 @@ def at_signal(g, s, break_even, mult=1.0):
     before it. Costs are cents per dollar paid out; the Coinbase cost is the equivalent contract's ask plus the exchange fee."""
     rows = [c for c in g.get('c') or [] if s['ts'] - 120 <= c[0] <= s['ts']]
     if not rows: return None
-    c = rows[-1]; out = dict(ts=c[0], est=c[1], between=[c[2], c[5]] if c[1] is not None else None, took=side_taken(s['side'], s['line'], c[1]), book=round(100 * break_even(s['price']), 1))
+    c = rows[-1]; out = dict(ts=c[0], est=c[1], between=[c[2], c[5]] if c[1] is not None else None, took=side_taken(s['side'], s['line'], c[1]),
+                                nearer=(None if c[1] is None or s.get('fair') is None else 'model' if abs(c[1] - s['fair']) < abs(c[1] - s['line']) else 'sportsbook'), book=round(100 * break_even(s['price']), 1))
     if c[8] is not None and c[9] is not None:
         ask = c[9] if s['side'] == 'Over' else round(100 - c[8], 2)
         out.update(quote=[c[8], c[9]], fee=fee(ask, mult), cb=round(ask + fee(ask, mult), 1))

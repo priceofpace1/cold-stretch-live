@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=32';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=32';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=32';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=32';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=32';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=32';
-import { cardModel, drawCard } from './card.js?v=32';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=33';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=33';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=33';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=33';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=33';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=33';
+import { cardModel, drawCard } from './card.js?v=33';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -952,9 +952,9 @@ const IDEA_LABELS = {
   'signal-hold-unbroken': 'Hold restarted by any 45-second hole in the live line',
   'signal-no-price': 'Without the price test',
   'signal-fresh-line': 'Skipping a sportsbook total that has stood two minutes while six points were scored',
-  'signal-cb-model': 'The rule\u2019s signals where Coinbase Predictions sided with the model',
-  'signal-cb-sportsbook': 'The rule\u2019s signals where Coinbase Predictions sat with the sportsbook',
-  'signal-cb-against': 'The rule\u2019s signals where Coinbase Predictions leaned the other way',
+  'signal-cb-toward': 'The rule\u2019s signals where the prediction market leaned the same way as the model',
+  'signal-cb-level': 'The rule\u2019s signals where the prediction market sat within a point of the sportsbook',
+  'signal-cb-away': 'The rule\u2019s signals where the prediction market leaned the other way',
   'signal-repeat': 'Firing again after the gap closes',
   'cold-over': 'Cold-stretch overs: scoring well behind pace',
   'cold-over-lopsided': 'Cold-stretch overs in lopsided games',
@@ -1406,7 +1406,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=32')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=33')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

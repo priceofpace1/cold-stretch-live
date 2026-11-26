@@ -179,7 +179,8 @@ def slate_date(now=None):
     return (now - datetime.timedelta(hours=10)).strftime('%Y%m%d')
 
 HOLD_LIVE, HOLD_POSS, STALE_SEC, STALE_PTS = 1.0, 4, 120, 6
-CB_SPLITS = ('model', 'sportsbook', 'against')   # where Coinbase Predictions stood when a signal was logged: each is tallied beside the record, none decides a signal
+CB_SPLITS = ('toward', 'level', 'away')   # where Coinbase Predictions stood when a signal was logged: each is tallied beside the record, none decides a signal
+PREDICTIONS_ON = False   # off until the exchange's written permission to collect and show its data is in hand: its API terms allow neither without it
 def poss_of(x):
     """Possessions played by both teams at one box reading: field-goal attempts less offensive rebounds, plus turnovers,
     plus 0.475 of free-throw attempts. None where the box reading lacks a figure."""
@@ -361,7 +362,7 @@ class Store:
             ladder = [r for r in ladder if r['date'] != date]
             runs = [(rule, [s for g in gl for s in signals_for(g, yard, k, window, arm, rule == SHADOW[0], hold=HOLD if rule in ('signal', SHADOW[0]) else 0)]) for rule, k, window, arm in VARIANTS + (SHADOW,)]   # the comparison rules fire at once, as they always have
             runs += [(rule, [s for g in gl for s in signals_for(g, yard, **extra) if keep is None or keep(s)]) for rule, extra, keep in IDEAS]
-            if not (live_rule and live_rule != RULES_VERSION):   # the rule's own signals, split by where Coinbase Predictions stood when each was logged
+            if PREDICTIONS_ON and not (live_rule and live_rule != RULES_VERSION):   # the rule's own signals, split by where Coinbase Predictions stood when each was logged
                 runs += [('signal-cb-' + took, [s for s in fresh if s.get('mkt', 'total') == 'total' and (s.get('cb') or {}).get('took') == took]) for took in CB_SPLITS]
             for rule, every in runs:   # what each rule or idea would have done, overall and by stage of the game
                 for stage, lo, hi in STAGES:
@@ -528,7 +529,7 @@ def main():
             if (s.get('period') or 0) > 2: continue
             store.add(date, s['id'], s['away'], s['home'], None, None, pre, s.get('detail') or 'Live', None, [s['ts'], round(elapsed(s['period'], s['clock']), 2), int(s['as']), int(s['hs'])] + lv)
         store.save(); return
-    if pm: store.mk = pm.Markets(a.out)
+    if pm and PREDICTIONS_ON: store.mk = pm.Markets(a.out)
     end = time.time() + a.minutes * 60; last_save = last_push = 0; idle_since = None; pre_cache = {}; finished = False; last_watch = time.time()
     while time.time() < end:
         t0 = time.time()
