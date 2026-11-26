@@ -30,8 +30,8 @@ export function cardModel(d) {
   };
 }
 
-const INK = '#0F1B2D', SUB = '#4A5568', RULE = '#D5DBE4', GROUND = '#F4F6F9', PANEL = '#FFFFFF', BOOK = '#B8430A', FAIR = '#1746C7';
-const SANS = '"IBM Plex Sans", "Helvetica Neue", Arial, sans-serif', SERIF = '"Newsreader", Georgia, serif';
+const INK = '#000000', SUB = '#444444', RULE = '#D6D6D6', GROUND = '#FFFFFF', PANEL = '#FFFFFF', BOOK = '#000000', FAIR = '#6B6B6B'; // the site's black, white and greys
+const SANS = '"IBM Plex Sans", "Helvetica Neue", Arial, sans-serif', SERIF = '"Inria Serif", Georgia, serif';
 
 /** Lines of text no wider than `max`, broken at spaces. */
 function wrap(ctx, text, max) {
@@ -64,8 +64,8 @@ export function drawCard(canvas, m) {
     c.font = `500 ${size}px ${SERIF}`;
     const fits = c.measureText(`${call.call}. ${call.result}.`).width <= R - X;
     text(`${call.call}.`, X, y, `500 ${size}px ${SERIF}`);
-    if (fits) text(`${call.result}.`, X + c.measureText(`${call.call}. `).width, y, `500 ${size}px ${SERIF}`, call.won ? FAIR : INK);
-    else { y += size; text(`${call.result}.`, X, y, `500 ${size}px ${SERIF}`, call.won ? FAIR : INK); }
+    if (fits) text(`${call.result}.`, X + c.measureText(`${call.call}. `).width, y, `500 ${size}px ${SERIF}`, INK);
+    else { y += size; text(`${call.result}.`, X, y, `500 ${size}px ${SERIF}`, INK); }
     y += big ? 56 : 46;
     text(`${call.when}.`, X, y, `400 30px ${SANS}`, SUB);
   }

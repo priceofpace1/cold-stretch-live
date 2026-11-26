@@ -49,10 +49,10 @@ test('graphic marks clear 3 to 1 against the panel', () => {
   for (const mark of ['book', 'fair', 'home', 'faint']) assert.ok(contrast(token[mark], token.panel) >= 3, mark);
 });
 
-test('book and fair stay far apart for every common form of colour blindness', () => {
-  assert.ok(distance(token.book, token.fair) > 80, 'full colour vision');
-  for (const [name, m] of Object.entries(VISION)) {
-    const d = distance(token.book, token.fair, m);
-    assert.ok(d > 80, `${name}: ${d.toFixed(0)}`);
-  }
+test('book and fair are told apart by lightness alone, which no form of colour blindness removes', () => {
+  // The site is black, white and greys. The sportsbook is black and fair is a mid grey; the lines also differ in kind.
+  const L = (hex, m) => lab(seen(hex, m))[0];
+  assert.ok(L(token.fair) - L(token.book) >= 40, 'full colour vision');
+  for (const [name, m] of Object.entries(VISION)) assert.ok(L(token.fair, m) - L(token.book, m) >= 40, name);
+  assert.ok(contrast(token.fair, token.panel) >= 4.5, 'fair is still dark enough to read');
 });

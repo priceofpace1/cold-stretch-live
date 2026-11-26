@@ -8,30 +8,51 @@ const settled = (s) => `${s.won} won, ${s.lost} lost${s.pushed ? `, ${s.pushed} 
  *      signals: { n, open, on, won, lost, pushed } } (on: open signals that still pass on the quote showing)
  * The headline says what there is to act on; the standfirst says what a signal is and how close the two numbers ran.
  */
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+/** A count as a word, the way a headline writes it; past ninety-nine it stays a figure. */
+export const numWord = (n) => (n < 20 ? ONES[n] : n < 100 ? TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : '') : String(n));
+const Cap = (n) => { const w = numWord(n); return w[0].toUpperCase() + w.slice(1); };
+
+/**
+ * The board's headline and the explanation under it, for every state of a slate. Beyond the counts it takes
+ * `on`: the games whose signal stands right now, furthest out first, each { name, dev, min };
+ * `near`: the live game closest to a signal that is not one, { name, dev }, or null; `buy` and `holdMin` from the rule.
+ * A gap is a disagreement between a model and a market. The wording never says the market is wrong.
+ */
 export function boardWords(d) {
   const s = d.signals || { n: 0, open: 0, won: 0, lost: 0, pushed: 0 };
   if (!d.loaded) return { head: 'Loading the slate.', sub: '' };
   if (!d.games) return { head: 'No games on this date.', sub: '' };
   const from = `Signals can fire from minute ${d.firstMinute} of each game.`;
+  const are = (n, rest) => `${Cap(n)} ${n === 1 ? 'is' : 'are'} ${rest}`;
   if (!d.readings) {
-    if (d.today && d.live) return { head: `${plural(d.live, 'game')} in progress. The first lines are coming in.`, sub: from };
-    if (d.ahead && !d.anyFinal) return { head: `${plural(d.ahead, 'game')} on the slate. The first tips at ${d.nextTip}.`, sub: `The board fills in at tip-off. ${from}` };
-    if (d.today && d.ahead) return { head: `${plural(d.ahead, 'game')} still to tip. The next is at ${d.nextTip}.`, sub: `No live line has been recorded yet today. ${from}` };
+    if (d.today && d.live) return { head: `${Cap(d.live)} ${d.live === 1 ? 'game is' : 'games are'} underway. The first lines are coming in.`, sub: from };
+    if (d.ahead && !d.anyFinal) return { head: `No games are underway. ${are(d.ahead, `on ${d.today ? 'today’s' : 'this'} board`)}, the first at ${d.nextTip}.`, sub: `The board fills in at tip-off. ${from}` };
+    if (d.today && d.ahead) return { head: `No games are underway. ${are(d.ahead, 'still to tip')}, the next at ${d.nextTip}.`, sub: `No live line has been recorded yet today. ${from}` };
     return { head: 'No live lines were recorded for this slate.', sub: 'ESPN drops the live line at the final whistle, so a slate can only be measured while the recorder is running.' };
   }
   const apart = `Across ${plural(d.readings, 'reading')} the sportsbook and the fair number have been ${d.apart.toFixed(1)} points apart on average.`;
-  const done = s.won + s.lost + s.pushed;
+  const done = s.won + s.lost + s.pushed, buy = d.buy || 2, hold = d.holdMin || 2;
+  const needs = `A signal needs the three-minute average ${buy} deviations from fair, held for ${numWord(hold)} minutes.`;
   if (d.today && d.live) {
-    // What can be done right now leads. A signal whose edge has gone is still open, but there is nothing to do about it.
-    const on = s.on || 0, waiting = s.open - on, games = d.live === 1 ? 'One game is' : `${d.live} games are`;
-    const head = on ? `${on === 1 ? 'One signal' : `${on} signals`} can be bet right now.`
-      : s.open ? 'Nothing to bet right now.'
-        : `No signal is open right now. ${games} live.`;
-    const today = done || waiting ? ` Today so far: ${settled(s)}${waiting ? `, ${waiting} waiting on a result` : ''}.` : '';
-    return { head, sub: `${on || s.open ? `${games} live.` : ''}${today}${d.record ? '' : ` ${apart}`}`.trim() };
+    const on = d.on || [], near = d.near || null, waiting = s.open - on.length;
+    const today = done || waiting > 0 ? ` Today so far: ${settled(s)}${waiting > 0 ? `, ${waiting} waiting on a result` : ''}.` : '';
+    if (on.length) {
+      const head = on.length === 1 ? `One total is out of line with the model: ${on[0].name}.`
+        : on.length === 2 ? `Two totals are out of line with the model: ${on[0].name} and ${on[1].name}.`
+          : `${Cap(on.length)} games meet the signal criteria, led by ${on[0].name}.`;
+      const where = on.length === 1 ? 'The sportsbook’s live total there' : `At ${on[0].name} the sportsbook’s live total`;
+      return { head, sub: `${where} has stood ${on[0].dev.toFixed(1)} deviations from the model’s fair number for ${plural(on[0].min, 'minute')}. That is a disagreement between a model and a market, logged before the result is known. It does not mean the market is wrong.${today}` };
+    }
+    if (near && near.dev >= (d.lean || 1.5)) return { head: `A gap is building at ${near.name}.`, sub: `Its three-minute average is ${near.dev.toFixed(1)} deviations from fair. ${needs}${today}` };
+    const head = d.live === 1 ? 'No material gap in the one live game.' : `No material gaps across ${numWord(d.live)} live games.`;
+    return { head, sub: `${needs}${near ? ` The closest game is ${near.name}, at ${near.dev.toFixed(1)}.` : ''}${today}${d.record ? '' : ` ${apart}`}` };
   }
-  const when = d.today ? 'today' : `on ${d.weekday}`;
-  const head = s.n ? `${plural(s.n, 'signal')} ${when}: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : `No signals ${when}.`;
+  const tally = `${plural(s.n, 'signal')}, ${settled(s)}${s.open ? `, ${s.open} open` : ''}`;
+  const head = d.today && d.ahead ? (s.n ? `${Cap(s.n)} ${s.n === 1 ? 'signal' : 'signals'} so far today: ${settled(s)}${s.open ? `, ${s.open} open` : ''}.` : 'No signal so far today.')
+    : d.today ? (s.n ? `The slate is final: ${tally}.` : 'The slate is final. No signal was logged.')
+      : s.n ? `${d.weekday}’s slate: ${tally}.` : `No signal was logged on ${d.weekday}.`;
   const what = 'A signal is logged when the sportsbook’s live total stays well away from the fair number and the model’s chance clears the price’s break-even by 5 points.';
   const next = d.today && d.ahead ? ` ${d.ahead === 1 ? 'One game is' : `${d.ahead} games are`} still to tip; the next is at ${d.nextTip}.` : '';
   const scored = d.afterFact && s.n ? ' This slate was scored after the fact, under a rule set later.' : '';

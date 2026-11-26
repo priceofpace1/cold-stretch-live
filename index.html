@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Price of Pace</title>
 <meta name="description" content="Live college basketball totals: the sportsbook's live line set against a fair final-score estimate for every game, with the record kept.">
-<meta name="theme-color" content="#F4F6F9">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="canonical" href="https://priceofpace.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="The Price of Pace">
@@ -17,13 +17,13 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The Price of Pace: a sportsbook's live total plotted against a fair number">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230F1B2D'/%3E%3Cpath d='M6 21h7v-6h6v-5h7' fill='none' stroke='%23F0843C' stroke-width='3'/%3E%3Cpath d='M6 17c7 0 12-2 20-9' fill='none' stroke='%237FA2FF' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Cpath d='M6.5 23h8.5V12.5h10.5' fill='none' stroke='%23fff' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=32">
+<link rel="preload" href="fonts/inria-serif-300.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css?v=33">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -41,7 +41,7 @@
       <button type="button" data-view="board" aria-current="page">Board</button>
       <button type="button" data-view="game">Game</button>
       <button type="button" data-view="record">Record</button>
-      <button type="button" data-view="about">About</button>
+      <button type="button" data-view="about">Method</button>
     </nav>
   </div>
 </header>
@@ -57,16 +57,16 @@
         <button type="button" class="key" id="today">Today</button>
       </div>
       <div class="tool-l">
-        <button type="button" class="key" id="only" aria-pressed="false">Signals only</button>
+        <button type="button" class="key" id="only" aria-pressed="false" hidden>Signals only</button>
         <button type="button" class="key" data-share="board">Share</button>
       </div>
     </div>
 
     <aside class="primer" id="primer" aria-label="How to read this site" hidden>
       <div class="primer-rows">
-        <p><b>Two numbers.</b> Orange is the sportsbook’s live total. Blue is the fair number: the score so far plus a normal pace for the time left.</p>
-        <p><b>One gap.</b> Each chart follows the gap between them through the game. Inside the shaded band it is too small to mean anything.</p>
-        <p><b>A signal.</b> When the three-minute average stays outside the band for two more minutes, and the model’s chance clears the price’s break-even by 5 points, it is logged and graded on the final score.</p>
+        <p><b>Two numbers.</b> The sportsbook’s live total, in black, and the fair number, in grey: the score so far plus a normal pace for the time left.</p>
+        <p><b>One gap.</b> Each row follows the gap between them through the game, in deviations. Inside two deviations it is too small to mean anything.</p>
+        <p><b>A signal.</b> When the three-minute average stays beyond two deviations for two more minutes, and the model’s chance clears the price’s break-even by 5 points, it is logged and graded on the final score.</p>
       </div>
       <p class="primer-foot"><button type="button" class="key is-primary" id="primer-ok">Got it</button><a href="#/about">How it works, in full</a></p>
     </aside>
@@ -77,25 +77,30 @@
         <p class="standfirst" id="lead-sub"></p>
         <p class="lead-links"><a class="key is-primary" id="alerts-link" target="_blank" rel="noopener" hidden>Get alerts</a><a href="#/record" id="record-link" hidden>The full record</a></p>
       </div>
-      <dl class="figures" id="proof" hidden>
-        <div><dt><span class="full">signals won and lost since <span id="fig-since">the record began</span>, each logged before the result</span><span class="brief">won and lost, logged live</span></dt><dd id="fig-rec">–</dd></div>
-        <div><dt><span class="full">units, at the price quoted when each one fired</span><span class="brief">units at the quoted price</span></dt><dd id="fig-units">–</dd></div>
-        <div><dt><span class="full">the same bets at the line showing a minute later</span><span class="brief">same bets a minute later</span></dt><dd id="fig-late">–</dd></div>
-      </dl>
-    </div>
-    <p class="note proof-note" id="proof-note" hidden></p>
-    <p class="book-link" id="book-line" hidden></p>
-    <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
-
-    <div class="desk" id="desk" hidden>
       <section class="block" id="feed-block">
         <div class="block-head">
-          <h2>Bet now</h2>
+          <h2 id="feed-h">Signal</h2>
           <p class="venue" hidden><span class="note">Bet at</span><span class="seg venue-seg" role="group" aria-label="Where you bet"></span></p>
         </div>
         <div class="sched feed now" id="feed"></div>
         <p class="note" id="feed-note" hidden></p>
       </section>
+    </div>
+    <dl class="figures" id="proof" hidden>
+      <div><dd id="fig-live">–</dd><dt>Games live</dt></div>
+      <div><dd id="fig-rec">–</dd><dt>Record since <span id="fig-since">the record began</span></dt></div>
+      <div><dd id="fig-units">–</dd><dt>Net units, quoted prices</dt></div>
+      <div><dd id="fig-ret">–</dd><dt>Return per unit risked</dt></div>
+      <div><dd id="fig-win">–</dd><dt>Win rate, <span id="fig-be">–</span> to break even</dt></div>
+      <div><dd id="fig-cur">–</dd><dt>Frozen rule, <span id="fig-curn">0</span> graded</dt></div>
+      <div><dd id="fig-dd">–</dd><dt>Maximum drawdown, units</dt></div>
+      <div><dd id="fig-late">–</dd><dt>Same bets a minute later</dt></div>
+    </dl>
+    <p class="note proof-note" id="proof-note" hidden></p>
+    <p class="book-link" id="book-line" hidden></p>
+    <p class="book-link cb-line" id="cb-line" aria-live="polite" hidden></p>
+
+    <div class="desk" id="desk" hidden>
       <section class="block" id="watch-block">
         <h2>Closest to a signal</h2>
         <div class="sched feed watch" id="watch"></div>
@@ -111,10 +116,11 @@
 
     <div class="block">
       <div class="block-head">
-        <h2>The gap in every game, minute by minute</h2>
+        <h2 id="board-h">Live board</h2>
+        <span class="tabs" id="filter" role="group" aria-label="Show games"><button type="button" data-filter="all" aria-pressed="true">All</button><button type="button" data-filter="eligible" aria-pressed="false">Eligible</button><button type="button" data-filter="signals" aria-pressed="false">Signals</button></span>
         <div class="seg" id="mode" role="group" aria-label="Show games as">
-          <button type="button" data-mode="trend" aria-pressed="true">Trend</button>
-          <button type="button" data-mode="table" aria-pressed="false">Table</button>
+          <button type="button" data-mode="table" aria-pressed="true">Table</button>
+          <button type="button" data-mode="trend" aria-pressed="false">Charts</button>
         </div>
       </div>
       <div id="trend-key">
@@ -124,20 +130,33 @@
         </details>
         <p class="gloss"><span><i class="k-line"></i>Three-minute average</span><span><i class="k-thin"></i>Each reading</span><span><i class="k-band"></i>Within 2 deviations: no trade</span><span><i class="k-low"></i>Book low: over side</span><span><i class="k-high"></i>Book high: under side</span><span><i class="k-off"></i>Lopsided game: signals off</span></p>
       </div>
-      <p class="note" id="table-key" hidden>The three-minute average of fair minus book, in deviations. Dot: now. Bar: its range since recording began.</p>
+      <p class="note" id="table-key" hidden><span class="q"></span>live quote&emsp;<span class="q d"></span>quote more than 45 seconds old&emsp;<span class="key-wide">Sorted by closeness to a signal. Trend: the three-minute average of fair minus sportsbook since the tip, in deviations, with the rule’s mark dotted on both sides. Upright line: a signal logged. Dot: where it stands now. Bar: its range.</span><span class="key-narrow">Sorted by closeness to a signal. Each line is the three-minute average of fair minus sportsbook since the tip; the dotted lines are the rule’s mark.</span></p>
       <div class="wall" id="wall" hidden></div>
       <p><button type="button" class="key" id="more-games" hidden></button></p>
       <div class="panel stand" id="stand" hidden>
         <div class="stand-head" aria-hidden="true">
-          <span>Game</span><span>Clock</span>
+          <span>Game</span><span>Clock</span><span>Trend since tip</span>
           <span class="axis"><span class="z-l">Book high, under side</span><span class="z-r">Book low, over side</span><i style="left:0%">−4</i><i style="left:25%">−2</i><i style="left:50%">0</i><i style="left:75%">+2</i><i style="left:100%">+4</i></span>
-          <span class="r">Book</span><span class="r">Fair</span><span class="r">Gap</span><span class="r">Avg</span><span>Status</span>
+          <span class="r">Sportsbook</span><span class="r">Fair</span><span class="r">Gap</span><span class="r">Dev.</span><span class="r">Held</span><span>Standing</span>
         </div>
         <div id="stand-rows"></div>
       </div>
       <p class="quiet small" id="board-unlined" hidden></p>
       <p class="vacant" id="board-empty">Loading the scoreboard.</p>
     </div>
+
+    <figure class="block exhibit" id="equity-block" hidden>
+      <h2>Every graded signal since <span id="eq-since">the record began</span>, in units at the quoted prices</h2>
+      <div class="equity" id="equity"></div>
+      <p class="note" id="equity-read">Filled dots won, open dots lost. Solid lines mark a change of rule. Point at a dot, or tap it, for the signal behind it.</p>
+      <dl class="by-rule" id="equity-rules"></dl>
+    </figure>
+
+    <section class="notes3" aria-label="What to keep in mind">
+      <div><h2>Calibration</h2><p>The model’s stated chance has run three to four points high in every range tested, so no probability leads this page. That work is open.</p></div>
+      <div><h2>Sample</h2><p id="note-sample">The record is young.</p></div>
+      <div><h2>Collected beside the record</h2><p>Possession data for every live game since Nov 26, and comparison rules that are tallied but never counted.</p></div>
+    </section>
 
     <div class="split">
       <section class="panel">
@@ -258,7 +277,10 @@
     <div class="block" id="units-block" hidden>
       <h2>Units won or lost, signal by signal</h2>
       <p class="note">One unit risked on every signal scored live, at the price the sportsbook was quoting, in the order they fired.</p>
-      <div class="panel chart-panel"><div class="chart" id="units"></div></div>
+      <div class="rec-filters"><span class="tabs" id="rec-rule" role="group" aria-label="Rule"></span><span class="tabs" id="rec-range" role="group" aria-label="Dates"></span></div>
+      <div class="equity" id="units"></div>
+      <p class="note" id="units-read"></p>
+      <p class="note" id="units-sum"></p>
     </div>
 
     <div class="block" id="rule-block" hidden>
@@ -410,7 +432,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=32"></script>
+<script type="module" src="js/app.js?v=33"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

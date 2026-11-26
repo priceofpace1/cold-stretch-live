@@ -34,7 +34,7 @@ export function rangePlot({ gap, lo, hi, signal = false, span = 4, threshold = 2
 /**
  * A small multiple: fair minus book by game minute, in deviations, on the same scale in every panel.
  * The thin line is every reading and the bold line is the three-minute rolling average the signal is judged on.
- * The shaded band is "no trade". Where the average leaves it, the space is filled: blue above (book low), orange below (book high).
+ * The shaded band is "no trade". Where the average leaves it, the space is filled, above for a book that is low and below for one that is high.
  */
 export function trendPanel(host, d) {
   const W = Math.max(220, host.clientWidth || 300), H = 172, m = { t: 8, r: 44, b: 20, l: 30 }, thr = d.threshold, span = d.span || 2 * thr, unit = d.unit || '';
@@ -252,3 +252,65 @@ export function unitsChart(host, steps, { dayLabel = (d) => d } = {}) {
 }
 
 export const fmt = { f1, signed };
+
+/**
+ * A game's three-minute average since the tip, small enough to sit in a table row. The rule's mark is drawn on both
+ * sides so a line that crosses it reads at a glance; the dot is where the average stands now, and an upright line marks
+ * the minute a signal was logged. Colour comes from the row.
+ */
+export function sparkline(points, { threshold = 2, from = 0, to = 40, w = 124, ht = 30, label = '', marks = [] } = {}) {
+  const span = threshold * 1.6, x = (t) => 1 + ((Math.min(to, Math.max(from, t)) - from) / (to - from)) * (w - 5), y = (v) => ht / 2 - (Math.max(-span, Math.min(span, v)) / span) * (ht / 2 - 2);
+  const svg = d3.create('svg').attr('viewBox', `0 0 ${w} ${ht}`).attr('class', 'spark').attr('role', 'img').attr('aria-label', label);
+  svg.append('line').attr('class', 'sp-0').attr('x1', 0).attr('x2', w).attr('y1', y(0)).attr('y2', y(0));
+  for (const v of [threshold, -threshold]) svg.append('line').attr('class', 'sp-t').attr('x1', 0).attr('x2', w).attr('y1', y(v)).attr('y2', y(v));
+  for (const t of marks) svg.append('line').attr('class', 'sp-m').attr('x1', x(t)).attr('x2', x(t)).attr('y1', 0).attr('y2', ht); // the minute a signal was logged
+  if (points.length) {
+    // a break of more than three minutes between readings is a gap in the recording, not a straight line
+    const parts = []; let cur = [];
+    for (const p of points) { if (cur.length && p.t - cur[cur.length - 1].t > 3) { parts.push(cur); cur = []; } cur.push(p); }
+    parts.push(cur);
+    for (const part of parts) svg.append('path').attr('class', 'sp-l').attr('d', d3.line().x((p) => x(p.t)).y((p) => y(p.v))(part));
+    const end = points[points.length - 1];
+    svg.append('circle').attr('class', 'sp-e').attr('cx', x(end.t)).attr('cy', y(end.v)).attr('r', 2.6);
+  }
+  return svg.node();
+}
+
+/**
+ * The record signal by signal: the running balance in units as a stepped line, a dot for each signal (filled for a win,
+ * open for a loss), a dotted line where each slate begins and a solid one where the rule changed. `onPick(step, n)` is
+ * called with the signal under the pointer or the finger, and with null when it leaves.
+ */
+export function recordChart(host, steps, { dayLabel = (d) => d, marks = [], onPick = null } = {}) {
+  const W = Math.max(300, host.clientWidth), narrow = W < 620, H = narrow ? 230 : 290, m = { t: 14, r: 54, b: 26, l: 34 };
+  const n = steps.length, pts = [{ i: 0, all: 0 }].concat(steps.map((s, i) => ({ ...s, i: i + 1 })));
+  const lo = Math.min(0, d3.min(pts, (p) => p.all)), hi = Math.max(0, d3.max(pts, (p) => p.all)), pad = Math.max(1, (hi - lo) * 0.12);
+  const x = d3.scaleLinear([0, n], [m.l, W - m.r]), y = d3.scaleLinear([lo - pad, hi + pad], [H - m.b, m.t]), end = pts[n];
+  const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', `Cumulative units over ${n} graded signals: ${signed(end.all)}.`);
+  const yt = y.ticks(5);
+  svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y).attr('stroke', (v) => (v === 0 ? 'var(--rule-strong)' : 'var(--rule-soft)'));
+  svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 7).attr('y', y).attr('dy', '0.32em').attr('text-anchor', 'end').text(tick);
+  const starts = steps.map((s, i) => ({ i, date: s.date })).filter((s, k) => k === 0 || s.date !== steps[s.i - 1].date), ruled = new Set(marks.map((k) => k.i));
+  let named = -Infinity;
+  for (const s of starts) {
+    if (s.i && !ruled.has(s.i)) svg.append('line').attr('x1', x(s.i)).attr('x2', x(s.i)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--rule-strong)').attr('stroke-dasharray', '1 4');
+    if (x(s.i) - named < 58 || x(s.i) + 44 > W - m.r) continue;
+    svg.append('text').attr('x', x(s.i)).attr('y', H - 7).attr('text-anchor', 'start').text(dayLabel(s.date));
+    named = x(s.i);
+  }
+  for (const k of marks) svg.append('line').attr('x1', x(k.i)).attr('x2', x(k.i)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--ink)').attr('stroke-width', 1);
+  svg.append('path').attr('d', d3.line().curve(d3.curveStepAfter).x((p) => x(p.i)).y((p) => y(p.all))(pts)).attr('fill', 'none').attr('stroke', 'var(--ink)').attr('stroke-width', 1.5).attr('stroke-linejoin', 'miter');
+  const r = Math.max(1.6, Math.min(3.2, (W - m.l - m.r) / n / 2.6));
+  svg.append('g').selectAll('circle').data(pts.slice(1)).join('circle').attr('cx', (p) => x(p.i)).attr('cy', (p) => y(p.all)).attr('r', r)
+    .attr('fill', (p) => (p.result === 'Won' ? 'var(--ink)' : p.result === 'Lost' ? 'var(--panel)' : 'var(--rule-strong)')).attr('stroke', 'var(--ink)').attr('stroke-width', 1);
+  svg.append('text').attr('class', 'lbl').attr('x', W - m.r + 9).attr('y', y(end.all)).attr('dy', '0.32em').style('fill', 'var(--ink)').text(signed(end.all));
+  // one hit area for the whole plot: the nearest signal answers, so a finger does not have to land on a three-pixel dot
+  const cross = svg.append('line').attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--ink)').attr('stroke-width', 0.75).attr('visibility', 'hidden');
+  const ring = svg.append('circle').attr('r', r + 3).attr('fill', 'none').attr('stroke', 'var(--ink)').attr('stroke-width', 1.5).attr('visibility', 'hidden');
+  const at = (ev) => { const [px] = d3.pointer(ev, svg.node()); return Math.max(1, Math.min(n, Math.round(x.invert(px)))); };
+  const show = (i) => { const p = pts[i]; cross.attr('x1', x(i)).attr('x2', x(i)).attr('visibility', 'visible'); ring.attr('cx', x(i)).attr('cy', y(p.all)).attr('visibility', 'visible'); if (onPick) onPick(steps[i - 1], i); };
+  const hide = () => { cross.attr('visibility', 'hidden'); ring.attr('visibility', 'hidden'); if (onPick) onPick(null, 0); };
+  svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent').style('cursor', 'crosshair')
+    .on('pointermove', (ev) => show(at(ev))).on('pointerdown', (ev) => show(at(ev))).on('pointerleave', (ev) => { if (ev.pointerType === 'mouse') hide(); });
+  host.replaceChildren(svg.node());
+}

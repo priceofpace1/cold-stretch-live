@@ -49,7 +49,10 @@ export const SITE = {
   // with ?coinbase=0, so it can be tried on the live address before anyone else sees it. `fee` is the per-contract
   // estimate added for Coinbase on top of Kalshi's published fee, in dollars. `dev` and `margin` are the entry rule
   // for alerts: the three-minute average that far out, and a contract that beats its price plus fees by that much.
-  coinbase: { on: false, fee: 0.02, dev: 2, margin: 0.05 },
+  // `allowed` is the master switch. While it is false nothing is fetched from the exchange or drawn for anyone, the
+  // per-browser ?coinbase=1 included, and no prediction market is offered as a venue. It stays false until the exchange
+  // has given written permission to display its market data.
+  coinbase: { allowed: false, on: false, fee: 0.02, dev: 2, margin: 0.05 },
 
   // A link for readers who want to chip in (a payment page under the site's name, never a personal one).
   // Empty url: no link is drawn.
@@ -68,6 +71,7 @@ export function dataBase(loc = globalThis.location, site = SITE) {
 
 /** Whether this browser shows Coinbase prices: ?coinbase=1 or 0 sets it and is remembered; otherwise the setting. */
 export function coinbaseOn(loc = globalThis.location, site = SITE, store = globalThis.localStorage) {
+  if (!(site.coinbase && site.coinbase.allowed)) return false; // the master switch: off for everyone, whatever a browser remembers
   const q = new URLSearchParams((loc && loc.search) || '').get('coinbase');
   try {
     if (q === '1' || q === '0') store.setItem('csl.coinbase', q);

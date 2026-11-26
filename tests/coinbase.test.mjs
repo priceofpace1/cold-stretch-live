@@ -90,12 +90,20 @@ test('the price request asks only for this slate\'s ladders', () => {
   assert.match(u, /min_close_ts=\d+&max_close_ts=\d+/);
 });
 
-test('Coinbase prices ship switched off, and a visitor turns them on for one browser', () => {
+test('prediction-market prices are switched off for everyone until the site allows them', () => {
+  assert.equal(SITE.coinbase.allowed, false);
   assert.equal(SITE.coinbase.on, false);
   const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v) }; };
+  // as shipped: no query string and nothing a browser remembers can turn them on
   const st = mem();
   assert.equal(coinbaseOn({ search: '' }, SITE, st), false);
-  assert.equal(coinbaseOn({ search: '?coinbase=1' }, SITE, st), true);
-  assert.equal(coinbaseOn({ search: '' }, SITE, st), true, 'remembered');
-  assert.equal(coinbaseOn({ search: '?coinbase=0' }, SITE, st), false);
+  assert.equal(coinbaseOn({ search: '?coinbase=1' }, SITE, st), false);
+  st.setItem('csl.coinbase', '1');
+  assert.equal(coinbaseOn({ search: '' }, SITE, st), false, 'a choice remembered from before the switch does nothing');
+  // once allowed, a visitor turns them on for one browser
+  const open = { ...SITE, coinbase: { ...SITE.coinbase, allowed: true } }, s2 = mem();
+  assert.equal(coinbaseOn({ search: '' }, open, s2), false);
+  assert.equal(coinbaseOn({ search: '?coinbase=1' }, open, s2), true);
+  assert.equal(coinbaseOn({ search: '' }, open, s2), true, 'remembered');
+  assert.equal(coinbaseOn({ search: '?coinbase=0' }, open, s2), false);
 });
