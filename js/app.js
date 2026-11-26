@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=31';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=31';
-import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=31';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=31';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=31';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=31';
-import { cardModel, drawCard } from './card.js?v=31';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=32';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=32';
+import { rangePlot, histogram, trendPanel, gameChart, unitsChart, fmt } from './charts.js?v=32';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=32';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=32';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=32';
+import { cardModel, drawCard } from './card.js?v=32';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -987,13 +987,13 @@ function renderRecord() {
   const sides = [['Overs', tally(live.filter((s) => s.side === 'Over'))], ['Unders', tally(live.filter((s) => s.side === 'Under'))]].filter((x) => x[1] !== '–');
   $('#r-sides').textContent = sides.map((x) => `${x[0]} ${x[1]}.`).join(' ') + (net.size - ahead - behind ? ` ${plural(net.size - ahead - behind, 'game')} level.` : '');
   $('#r-sides').hidden = !sides.length;
-  // The figures a careful reader asks for next: what a unit risked has returned, at what prices, and how deep the worst run went.
+  // The figures a careful reader asks for next: what a unit risked has returned, at what prices, and the maximum drawdown. Each graded signal risks one unit; the return is net units, unrounded, over units risked.
   if (settled.length) {
     const byTime = [...settled].sort((a, b) => a.ts - b.ts); let bal = 0, peak = 0, worst = 0, run = 0, longest = 0;
     for (const s of byTime) { bal += pay(s); peak = Math.max(peak, bal); worst = Math.min(worst, bal - peak); run = s.result === 'Lost' ? run + 1 : 0; longest = Math.max(longest, run); }
     const be = settled.reduce((a, s) => a + (s.price > 0 ? 100 / (s.price + 100) : -s.price / (100 - s.price)), 0) / settled.length; // average break-even of the prices taken
     const avgOdds = be >= 0.5 ? -Math.round((100 * be) / (1 - be)) : Math.round((100 * (1 - be)) / be);
-    $('#r-stats').textContent = `Return on each unit risked: ${units >= 0 ? '+' : '−'}${Math.abs((100 * units) / settled.length).toFixed(1)}%. Win rate ${((100 * won) / settled.length).toFixed(1)}% against a break-even of ${(100 * be).toFixed(1)}% at the prices taken (average ${avgOdds > 0 ? '+' : '−'}${Math.abs(avgOdds)}). Worst run from a high point: ${worst ? '−' : ''}${Math.abs(worst).toFixed(1)} units. Longest losing streak: ${longest}.`;
+    $('#r-stats').textContent = `Return on each unit risked: ${units >= 0 ? '+' : '−'}${Math.abs((100 * units) / settled.length).toFixed(1)}%. Win rate ${((100 * won) / settled.length).toFixed(1)}% against a break-even of ${(100 * be).toFixed(1)}% at the prices taken (average ${avgOdds > 0 ? '+' : '−'}${Math.abs(avgOdds)}). Maximum drawdown: ${worst ? '−' : ''}${Math.abs(worst).toFixed(1)} units, from the highest running balance to the lowest point after it. Longest losing streak: ${longest}.`;
   }
   $('#r-stats').hidden = !settled.length;
   // Every signal as it was logged, for anyone who wants to check the arithmetic themselves.
@@ -1403,7 +1403,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=31')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=32')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();
