@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inria-serif-300.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=33">
+<link rel="stylesheet" href="css/app.css?v=34">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -87,12 +87,12 @@
       </section>
     </div>
     <dl class="figures" id="proof" hidden>
-      <div><dd id="fig-live">–</dd><dt>Games live</dt></div>
-      <div><dd id="fig-rec">–</dd><dt>Record since <span id="fig-since">the record began</span></dt></div>
+      <div class="fig-act" id="fig-now-cell"><dd><a id="fig-now" href="#/board">–</a></dd><dt id="fig-now-l">Signals now</dt></div>
+      <div class="fig-act" id="fig-close-cell"><dd><a id="fig-close" href="#/board">–</a></dd><dt id="fig-close-l">Close to a signal</dt></div>
+      <div><dd id="fig-rec">–</dd><dt>Record since <span id="fig-since">the record began</span><span class="only-narrow" id="fig-units-n"></span></dt></div>
       <div><dd id="fig-units">–</dd><dt>Net units, quoted prices</dt></div>
       <div><dd id="fig-ret">–</dd><dt>Return per unit risked</dt></div>
       <div><dd id="fig-win">–</dd><dt>Win rate, <span id="fig-be">–</span> to break even</dt></div>
-      <div><dd id="fig-cur">–</dd><dt>Frozen rule, <span id="fig-curn">0</span> graded</dt></div>
       <div><dd id="fig-dd">–</dd><dt>Maximum drawdown, units</dt></div>
       <div><dd id="fig-late">–</dd><dt>Same bets a minute later</dt></div>
     </dl>
@@ -149,7 +149,6 @@
       <h2>Every graded signal since <span id="eq-since">the record began</span>, in units at the quoted prices</h2>
       <div class="equity" id="equity"></div>
       <p class="note" id="equity-read">Filled dots won, open dots lost. Solid lines mark a change of rule. Point at a dot, or tap it, for the signal behind it.</p>
-      <dl class="by-rule" id="equity-rules"></dl>
     </figure>
 
     <section class="notes3" aria-label="What to keep in mind">
@@ -432,7 +431,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=33"></script>
+<script type="module" src="js/app.js?v=34"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

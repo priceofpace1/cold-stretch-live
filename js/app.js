@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=33';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=33';
-import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=33';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=33';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=33';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=33';
-import { cardModel, drawCard } from './card.js?v=33';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=34';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=34';
+import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=34';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=34';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=34';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=34';
+import { cardModel, drawCard } from './card.js?v=34';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -458,19 +458,45 @@ function schedRow(g, right) {
   return b;
 }
 
-/** What the headline names: the games whose signal stands now, furthest out first, and the live game closest to one. */
+/**
+ * What can be acted on right now: the games whose signal stands, furthest out first; the live game closest to a signal
+ * that is not one; and the games on watch, a deviation and a half or more from fair.
+ */
 function standout(all) {
   const on = [], rest = [];
   if (isToday()) for (const g of all) {
     if (g.state !== 'in') continue;
     const name = `${g.away.name} at ${g.home.name}`, sig = signalsOf(g).find((x) => x.market === 'total' && onNow(g, x));
-    if (sig) { const run = runOf(g, sig.side); on.push({ name, dev: run.dev, min: Math.floor(run.sec / 60) }); continue; }
-    const st = standing(g);
-    const dev = devNow(g);
-    if (st && st.fresh && st.eligible && !st.stalled && dev != null) rest.push({ name, dev: Math.abs(dev) });
+    if (sig) { const run = runOf(g, sig.side); on.push({ id: g.id, name, dev: run.dev, min: Math.floor(run.sec / 60), call: `${sig.side} ${f1(signalNow(sig, nowRow(g)).line)}` }); continue; }
+    const st = standing(g), dev = devNow(g);
+    if (st && st.fresh && st.eligible && !st.stalled && dev != null) rest.push({ id: g.id, name, dev: Math.abs(dev), side: dev > 0 ? 'over' : 'under' });
   }
   on.sort((a, b) => b.dev - a.dev); rest.sort((a, b) => b.dev - a.dev);
-  return { on, near: rest[0] || null };
+  return { on, near: rest[0] || null, close: rest.filter((x) => x.dev >= RULES.leanDev) };
+}
+
+/**
+ * The first two figures of the strip are the ones to act on. With games live: how many signals stand, and how many
+ * games are close to one, each naming its leading game and opening it. Before the first tip: when it is. On a finished
+ * or past slate: what was logged and how it went.
+ */
+function renderAction(all, out, ahead, sig) {
+  const live = all.some((g) => g.state === 'in') && isToday(), now = $('#fig-now'), close = $('#fig-close');
+  const set = (a, label, value, text, href) => { a.textContent = value; a.setAttribute('href', href); label.textContent = text; };
+  const more = (n) => (n > 1 ? `, and ${n - 1} more` : ''), board = `#/board/${S.date}`;
+  $('#fig-now-cell').classList.toggle('is-on', live && out.on.length > 0);
+  $('#fig-close-cell').classList.toggle('is-near', live && out.close.length > 0);
+  if (live) {
+    set(now, $('#fig-now-l'), String(out.on.length), out.on.length ? `${out.on.length === 1 ? 'Signal' : 'Signals'} now: ${out.on[0].call}, ${out.on[0].name}${more(out.on.length)}` : 'Signals now', out.on.length ? gameHash(out.on[0].id, 'total') : board);
+    set(close, $('#fig-close-l'), String(out.close.length), out.close.length ? `Close to a signal: ${out.close[0].name}, ${out.close[0].dev.toFixed(1)} toward the ${out.close[0].side}${more(out.close.length)}` : out.near ? `Close to a signal. Nearest: ${out.near.name}, ${out.near.dev.toFixed(1)}` : 'Close to a signal', out.close.length ? gameHash(out.close[0].id, 'total') : board);
+  } else if (ahead.length && (isToday() || !all.some((g) => g.state === 'post'))) {
+    set(now, $('#fig-now-l'), timeLabel(ahead[0].start), `Next tip: ${ahead[0].away.name} at ${ahead[0].home.name}`, board);
+    set(close, $('#fig-close-l'), String(ahead.length), `${ahead.length === 1 ? 'Game' : 'Games'} still to tip`, board);
+  } else {
+    const won = sig.filter((x) => x.result === 'Won').length, lost = sig.filter((x) => x.result === 'Lost').length;
+    set(now, $('#fig-now-l'), String(sig.length), `${sig.length === 1 ? 'Signal' : 'Signals'} logged on this slate`, board);
+    set(close, $('#fig-close-l'), won + lost ? `${won}–${lost}` : '–', 'Won–lost on this slate', board);
+  }
 }
 
 /** The slate in one finding: how far the book ran from fair, which way it missed, and whether anything held. */
@@ -489,21 +515,21 @@ function renderLead(all) {
   const sig = all.flatMap((g) => signalsOf(g)).filter((x) => !x.fault && !x.own), count = (r) => sig.filter((x) => x.result === r).length; // a signal logged on a stalled feed, or seen by this page alone, is listed and not counted
   // The record leads the page: what has been logged and graded, in the three figures a newcomer would ask for first.
   const rec = recordOf(S.ledger, RULES.liveSince), graded = rec.won + rec.lost > 0;
-  $('#proof').hidden = !graded; $('#record-link').hidden = !graded;
+  const out = standout(all);
+  $('#proof').hidden = !graded && !all.length; $('#record-link').hidden = !graded;
+  renderAction(all, out, ahead, sig);
   if (graded) {
-    const rows = counted(), all = statsOf(rows), now = RULE_HISTORY[RULE_HISTORY.length - 1], cur = statsOf(rows.filter((s) => s.rule === now.version));
-    $('#fig-live').textContent = String(live);
-    $('#fig-rec').textContent = `${all.won}–${all.lost}`;
-    $('#fig-units').textContent = signed(all.units);
-    $('#fig-ret').textContent = `${all.ret >= 0 ? '+' : '−'}${Math.abs(100 * all.ret).toFixed(1)}%`;
-    $('#fig-win').textContent = pct1(all.win); $('#fig-be').textContent = pct1(all.be);
-    $('#fig-cur').textContent = cur.n ? `${cur.won}–${cur.lost}` : '–'; $('#fig-curn').textContent = String(cur.n);
-    $('#fig-dd').textContent = all.dd ? `−${Math.abs(all.dd).toFixed(1)}` : '0.0';
+    const rows = counted(), tot = statsOf(rows);
+    $('#fig-rec').textContent = `${tot.won}–${tot.lost}`;
+    $('#fig-units').textContent = signed(tot.units); $('#fig-units-n').textContent = `, ${signed(tot.units)} units`;
+    $('#fig-ret').textContent = `${tot.ret >= 0 ? '+' : '−'}${Math.abs(100 * tot.ret).toFixed(1)}%`;
+    $('#fig-win').textContent = pct1(tot.win); $('#fig-be').textContent = pct1(tot.be);
+    $('#fig-dd').textContent = tot.dd ? `−${Math.abs(tot.dd).toFixed(1)}` : '0.0';
     $('#fig-late').textContent = rec.late.won + rec.late.lost ? `${rec.late.won}–${rec.late.lost}` : '–';
     $('#fig-since').textContent = monthDay(RULES.liveSince);
-    $('#proof-note').textContent = `Every figure counts each signal once, at the sportsbook price quoted when it was logged. The rule in force was frozen on ${monthDay(now.since)}; the rest were logged under the two rules before it.`;
+    $('#proof-note').textContent = 'Every figure counts each signal once, at the sportsbook price quoted when it was logged.';
     const days = new Set(rows.map((x) => x.date)).size;
-    $('#note-sample').textContent = `${plural(all.n, 'graded signal')} over ${plural(days, 'slate')}, ${cur.n} of them under the frozen rule. That is too few to tell skill from luck. The rule is held as it is and reviewed at 150 graded signals.`;
+    $('#note-sample').textContent = `${plural(tot.n, 'graded signal')} over ${plural(days, 'slate')}. That is too few to tell skill from luck, so read the record as a count, not a verdict.`;
   }
   $('#proof-note').hidden = !graded;
   renderRuleLine($('#rule-line'), S.date);
@@ -511,7 +537,7 @@ function renderLead(all) {
     loaded: !!S.scoresAt, today: isToday(), weekday: new Date(toUTC(S.date)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
     games: all.length, live, ahead: ahead.length, nextTip: ahead.length ? timeLabel(ahead[0].start) : '', anyFinal: all.some((g) => g.state === 'post'),
     readings: st.n, apart: st.abs || 0, firstMinute: RULES.firstMinute, afterFact: S.date < RULES.liveSince, record: graded,
-    buy: RULES.buyDev, lean: RULES.leanDev, holdMin: HOLD_SEC / 60, ...standout(all),
+    buy: RULES.buyDev, lean: RULES.leanDev, holdMin: HOLD_SEC / 60, on: out.on, near: out.near,
     signals: { n: sig.length, open: count('Pending'), won: count('Won'), lost: count('Lost'), pushed: count('Push') },
   });
   $('#view-board').classList.toggle('no-lines', !st.n); // before any line is recorded the schedule leads and the empty figures step aside
@@ -858,11 +884,6 @@ function renderEquity() {
   S.eqKey = key;
   $('#eq-since').textContent = monthDay(RULES.liveSince);
   drawRecord(host, $('#equity-read'), steps, RECORD_KEY);
-  $('#equity-rules').replaceChildren(...RULE_HISTORY.map((r, i) => {
-    const x = statsOf(rows.filter((q) => q.rule === r.version)), d = h('div');
-    d.append(h('dt', '', i === RULE_HISTORY.length - 1 ? `Frozen rule, since ${monthDay(r.since)}` : `Rule of ${monthDay(r.since)}`), h('dd', '', x.n ? `${x.won}–${x.lost}, ${signed(x.units)}` : 'No graded signal yet'));
-    return d;
-  }));
 }
 
 /* ---------- game ---------- */
@@ -1516,7 +1537,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=33')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=34')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();
