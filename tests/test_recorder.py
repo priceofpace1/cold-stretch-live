@@ -333,8 +333,8 @@ class Recording(unittest.TestCase):
         self.assertIsInstance(json.load(open(os.path.join(self.dir.name, 'ledger.json'))), list)
         self.assertEqual(day['yardstick']['source'], 'model.json', 'no earlier slate, so the shipped yardstick is used and stored with the day')
         ladder = json.load(open(os.path.join(self.dir.name, 'ladder.json')))
-        self.assertEqual({r['rule'] for r in ladder}, {v[0] for v in record.VARIANTS} | {record.SHADOW[0]} | {i[0] for i in record.IDEAS})
-        self.assertEqual(len(ladder), (len(record.VARIANTS) + 1 + len(record.IDEAS)) * len(record.STAGES))
+        self.assertEqual({r['rule'] for r in ladder}, {v[0] for v in record.VARIANTS} | {record.SHADOW[0]} | {i[0] for i in record.IDEAS} | {'signal-cb-' + k for k in record.CB_SPLITS})
+        self.assertEqual(len(ladder), (len(record.VARIANTS) + 1 + len(record.IDEAS) + len(record.CB_SPLITS)) * len(record.STAGES))
 
     def test_stored_slates_are_judged_again_when_the_rules_change(self):
         self.add(0, 10, 15, 15, 150.5)

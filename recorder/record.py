@@ -10,6 +10,8 @@ Standard library only. ESPN's endpoints are unofficial and can change without no
 """
 import argparse, bisect, datetime, json, os, subprocess, sys, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
+try: import predictions as pm   # Coinbase Predictions quotes: research data beside the record, read by nothing that decides a signal
+except Exception: pm = None
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SB = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=%s&groups=50&limit=400&_=%d"
 BX = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball/events/%s/competitions/%s/competitors/%s/statistics?_=%d"
@@ -177,6 +179,7 @@ def slate_date(now=None):
     return (now - datetime.timedelta(hours=10)).strftime('%Y%m%d')
 
 HOLD_LIVE, HOLD_POSS, STALE_SEC, STALE_PTS = 1.0, 4, 120, 6
+CB_SPLITS = ('model', 'sportsbook', 'against')   # where Coinbase Predictions stood when a signal was logged: each is tallied beside the record, none decides a signal
 def poss_of(x):
     """Possessions played by both teams at one box reading: field-goal attempts less offensive rebounds, plus turnovers,
     plus 0.475 of free-throw attempts. None where the box reading lacks a figure."""
@@ -287,7 +290,7 @@ def later_of(g, s, rows=None):
 
 class Store:
     def __init__(self, out):
-        self.out = out; os.makedirs(os.path.join(out, 'tracks'), exist_ok=True); self.days = {}; self.yards = {}
+        self.out = out; os.makedirs(os.path.join(out, 'tracks'), exist_ok=True); self.days = {}; self.yards = {}; self.mk = None
     def path(self, date): return os.path.join(self.out, 'tracks', date + '.json')
     def day(self, date):
         if date not in self.days:
@@ -305,6 +308,13 @@ class Store:
         x = g.setdefault('x', [])
         full = box[4] is not None and box[9] is not None   # rebounds and turnovers arrive every other minute: such a reading is always kept
         if not x or full or box[0] - x[-1][0] >= BOX_KEEP: x.append(box)
+    def add_market(self, date, ev_id, c):
+        """A Coinbase Predictions row for a game already on the day (see predictions.row), at most one a minute. Research data:
+        the rule does not read it."""
+        g = self.day(date).get(ev_id)
+        if g is None or not c: return
+        rows = g.setdefault('c', [])
+        if not rows or c[0] - rows[-1][0] >= 50: rows.append(c)
     def add(self, date, ev_id, away, home, ar, hr, pre, status, final, reading):
         g = self.day(date).setdefault(ev_id, dict(id=ev_id, date=date, away=away, home=home, ar=ar, hr=hr, pre=None, status='', final=None, r=[]))
         if pre and pre[0] is not None and pre[1] is not None: g['pre'] = pre
@@ -342,10 +352,17 @@ class Store:
                     at = next((r for r in rows[g['id']] if r['ts'] == s['ts']), None)
                     if at is not None and at['stalled']: s['fault'] = 'stalled'
                     else: s.pop('fault', None)
+                    if pm and g.get('c'):   # what the prediction market showed when the signal was logged: recorded, never used to decide it
+                        try:
+                            cb = pm.at_signal(g, s, break_even, self.mk.mult() if self.mk else 1.0)
+                            if cb: s['cb'] = cb
+                        except Exception as err: print('predictions note error', str(err)[:80], flush=True)
             ledger = [s for s in ledger if s['date'] != date] + fresh
             ladder = [r for r in ladder if r['date'] != date]
             runs = [(rule, [s for g in gl for s in signals_for(g, yard, k, window, arm, rule == SHADOW[0], hold=HOLD if rule in ('signal', SHADOW[0]) else 0)]) for rule, k, window, arm in VARIANTS + (SHADOW,)]   # the comparison rules fire at once, as they always have
             runs += [(rule, [s for g in gl for s in signals_for(g, yard, **extra) if keep is None or keep(s)]) for rule, extra, keep in IDEAS]
+            if not (live_rule and live_rule != RULES_VERSION):   # the rule's own signals, split by where Coinbase Predictions stood when each was logged
+                runs += [('signal-cb-' + took, [s for s in fresh if s.get('mkt', 'total') == 'total' and (s.get('cb') or {}).get('took') == took]) for took in CB_SPLITS]
             for rule, every in runs:   # what each rule or idea would have done, overall and by stage of the game
                 for stage, lo, hi in STAGES:
                     sig = [s for s in every if lo <= s['t'] < hi]; res = [s['result'] for s in sig]
@@ -359,6 +376,9 @@ class Store:
         json.dump(sorted(ladder, key=lambda r: r['date']), open(ladder_path, 'w'), separators=(',', ':'))
         json.dump(sorted(ledger, key=lambda s: (s['date'], s['ts'])), open(ledger_path, 'w'), separators=(',', ':'))
         json.dump(sorted(index.values(), key=lambda d: d['date']), open(index_path, 'w'), separators=(',', ':'))
+        if self.mk:
+            try: self.mk.save()
+            except Exception as err: print('predictions save error', str(err)[:80], flush=True)
 
 def migrate(out):
     """If the stored results were made under other rules, go through every stored slate again. Readings are never
@@ -436,6 +456,16 @@ def poll(store, pre_cache):
     with ThreadPoolExecutor(8) as ex: odds = dict(zip([e['id'] for e in live_games], ex.map(odds_for, [e['id'] for e in live_games])))
     try: boxes = boxes_for(live_games, now)
     except Exception as err: boxes = {}; print('box error', str(err)[:80], flush=True)
+    quotes = {}
+    if store.mk:   # Coinbase Predictions: one request a minute for every open game, kept beside the readings
+        try:
+            names = lambda x: [x['team'].get(k) for k in ('location', 'shortDisplayName', 'displayName', 'abbreviation') if x['team'].get(k)]
+            info = []
+            for e in live_games:
+                cs = {x['homeAway']: x for x in e['competitions'][0]['competitors']}; pre, live = odds.get(e['id'], (None, None))
+                info.append(dict(id=e['id'], away=names(cs['away']), home=names(cs['home']), line=(live or pre or pre_cache.get(e['id']) or [None])[0]))
+            quotes = store.mk.update(date, now, info)
+        except Exception as err: print('predictions error', str(err)[:80], flush=True)
     n_in = n_pre = 0
     for e in evs:
         st = e['status']; state = st['type']['state']; c = e['competitions'][0]; cs = {x['homeAway']: x for x in c['competitors']}
@@ -454,8 +484,12 @@ def poll(store, pre_cache):
             if b and reading:
                 ea, eh = b['extra'].get('away') or [None] * 3, b['extra'].get('home') or [None] * 3
                 store.add_box(date, e['id'], [now, t, b['shots'][0], b['shots'][1]] + ea + [b['shots'][2], b['shots'][3]] + eh)
+            if quotes.get(e['id']) and reading: store.add_market(date, e['id'], quotes[e['id']])
         elif state == 'post':
             store.add(date, e['id'], name('away'), name('home'), rank('away'), rank('home'), pre_cache.get(e['id']), 'Final', [a, h], None)
+            if store.mk:
+                try: store.mk.final(date, e['id'], now)
+                except Exception as err: print('predictions result error', str(err)[:80], flush=True)
     return n_in, n_pre
 
 def git(out, *args): return subprocess.run(['git', '-C', out] + list(args), capture_output=True, text=True)
@@ -494,6 +528,7 @@ def main():
             if (s.get('period') or 0) > 2: continue
             store.add(date, s['id'], s['away'], s['home'], None, None, pre, s.get('detail') or 'Live', None, [s['ts'], round(elapsed(s['period'], s['clock']), 2), int(s['as']), int(s['hs'])] + lv)
         store.save(); return
+    if pm: store.mk = pm.Markets(a.out)
     end = time.time() + a.minutes * 60; last_save = last_push = 0; idle_since = None; pre_cache = {}; finished = False; last_watch = time.time()
     while time.time() < end:
         t0 = time.time()
