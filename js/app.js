@@ -2,13 +2,14 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=35';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=35';
-import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=35';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=35';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=35';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=35';
-import { cardModel, drawCard } from './card.js?v=35';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=36';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=36';
+import { SOUNDS, WIN_SOUND, LOSS_SOUND, loadPrefs, savePrefs, fresh, settledSince, audio, audioReady, play, buzz, canNotify, notifyState, askNotify, worker, notify, keepAwake, canStayAwake } from './alerts.js?v=36';
+import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=36';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=36';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=36';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=36';
+import { cardModel, drawCard } from './card.js?v=36';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -504,7 +505,7 @@ function standout(all) {
   if (isToday()) for (const g of all) {
     if (g.state !== 'in') continue;
     const name = `${g.away.name} at ${g.home.name}`, sig = signalsOf(g).find((x) => x.market === 'total' && onNow(g, x));
-    if (sig) { const run = runOf(g, sig.side); on.push({ id: g.id, name, dev: run.dev, min: Math.floor(run.sec / 60), call: `${sig.side} ${f1(signalNow(sig, nowRow(g)).line)}` }); continue; }
+    if (sig) { const run = runOf(g, sig.side), q = signalNow(sig, nowRow(g)); on.push({ id: g.id, sid: `${g.id}|total|${sig.side}|${sig.at}`, name, dev: run.dev, min: Math.floor(run.sec / 60), call: `${sig.side} ${f1(q.line)}`, price: q.quoted ? `${q.price > 0 ? '+' : '−'}${Math.abs(Math.round(q.price))}` : '', where: `${clockText(g)}, ${g.away.pts}–${g.home.pts}` }); continue; }
     const st = standing(g), dev = devNow(g);
     if (st && st.fresh && st.eligible && !st.stalled && dev != null) rest.push({ id: g.id, name, dev: Math.abs(dev), side: dev > 0 ? 'over' : 'under' });
   }
@@ -876,6 +877,7 @@ function renderWatch(all) {
 
 function renderBoard() {
   $('#day').textContent = dayLabel(S.date);
+  $('#today').hidden = isToday(); // already there
   $('#only').setAttribute('aria-pressed', String(S.only));
   const all = [...S.games.values()], nLive = all.filter((g) => g.state === 'in').length, every = standGames(), rows = boardRows();
   for (const b of document.querySelectorAll('#filter button')) { const k = b.dataset.filter; b.setAttribute('aria-pressed', String(k === S.filter)); b.textContent = `${k === 'all' ? 'All' : k === 'eligible' ? 'Eligible' : 'Signals'} ${every.filter(FILTERS[k]).length}`; }
@@ -1539,7 +1541,81 @@ function renderTitle() {
   const title = on.length ? `(${on.length}) ${on[0].call}, ${on[0].name} – ${SITE.name}` : SITE.name;
   if (document.title !== title) document.title = title;
 }
-function render() { S.memo.clear(); renderVenue(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); }
+/* ---------- alerts in this browser ---------- */
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const AL = {
+  prefs: loadPrefs((() => { try { return localStorage; } catch { return null; } })(), COARSE), open: false, results: null,
+  seen: (() => { try { return new Set(JSON.parse(sessionStorage.getItem('csl.alerted') || '[]')); } catch { return new Set(); } })(),
+};
+const keepPrefs = () => { try { savePrefs(localStorage, AL.prefs); } catch { /* not remembered */ } };
+
+/**
+ * Looks for news since the last pass: a signal that has just come to stand, or one that has just settled. Each signal
+ * alerts once in a browser session, so reloading the page does not sound it again, and nothing that had already settled
+ * when the page opened is announced. Runs whether or not alerts are on, so turning them on mid-game does not replay the day.
+ */
+function checkAlerts() {
+  if (!isToday() || !S.scoresAt) return;
+  const games = [...S.games.values()], on = standout(games).on;
+  const settled = games.flatMap((g) => signalsOf(g).filter((x) => x.market === 'total' && !x.fault).map((x) => ({ key: `${g.id}|${x.side}|${x.at}`, result: x.result, id: g.id, text: `${x.side} ${f1(x.line)}, ${g.away.name} at ${g.home.name}`, final: g.away.pts + g.home.pts })));
+  const news = fresh(AL.seen, on), done = settledSince(AL.results, settled);
+  AL.results = new Map(settled.map((x) => [x.key, x.result]));
+  if (news.length) { for (const x of news) AL.seen.add(x.sid); try { sessionStorage.setItem('csl.alerted', JSON.stringify([...AL.seen].slice(-200))); } catch { /* not remembered */ } }
+  if (!AL.prefs.on) return;
+  if (news.length) {
+    play(AL.prefs.sound); buzz();
+    for (const x of news) notify(`${x.call}${x.price ? ` at ${x.price}` : ''}: ${x.name}`, `${x.where}. The sportsbook’s total is ${x.dev.toFixed(1)} deviations from fair and has held ${plural(x.min, 'minute')}. Check the quote before acting; it moves.`, gameHash(x.id, 'total'), x.sid);
+  } else if (done.length && AL.prefs.results) {
+    const won = done.filter((x) => x.result === 'Won').length;
+    play(won ? WIN_SOUND : LOSS_SOUND);
+    for (const x of done) notify(`${x.result}: ${x.text}`, `Final total ${x.final}.`, gameHash(x.id, 'total'), x.key);
+  }
+}
+
+/** The alerts button and its panel. */
+function renderAlerts() {
+  const btn = $('#alerts-btn'), p = AL.prefs;
+  btn.textContent = p.on ? 'Alerts on' : 'Alerts off';
+  btn.setAttribute('aria-pressed', String(p.on)); btn.setAttribute('aria-expanded', String(AL.open));
+  $('#alerts-panel').hidden = !AL.open;
+  if (!AL.open) return;
+  const host = $('#alerts-sounds');
+  if (!host.childElementCount) for (const [k, name] of Object.entries(SOUNDS)) { const b = h('button', '', name); b.type = 'button'; b.dataset.v = k; b.addEventListener('click', () => { AL.prefs.sound = k; keepPrefs(); play(k); renderAlerts(); }); host.append(b); }
+  for (const b of host.children) b.setAttribute('aria-pressed', String(b.dataset.v === p.sound));
+  $('#alerts-results').checked = p.results; $('#alerts-awake').checked = p.awake;
+  $('#alerts-awake-row').hidden = !canStayAwake();
+  const note = notifyState(), sound = audioReady() ? `A new signal plays the ${SOUNDS[p.sound].toLowerCase()}` : 'Sound is waiting for one tap anywhere on the page, which is how browsers allow it';
+  $('#alerts-status').textContent = !p.on ? 'Off.' : `On. ${sound}${navigator.vibrate && COARSE ? ', buzzes the phone' : ''}${note === 'granted' ? ' and posts a notification you can tap to open the game.' : note === 'denied' ? '. Notifications are blocked for this site in the browser’s settings, so there is no banner.' : note === 'unsupported' ? '. This browser does not offer notifications to a page in a tab.' : '.'}`;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  $('#alerts-phone').textContent = `A browser only runs this page while it is open, so the alert works with the page in front${COARSE ? ' and the screen awake, and not with the phone locked' : ' or in a background tab'}.${ios && note === 'unsupported' ? ' On an iPhone, add the site to the Home Screen (Share, then Add to Home Screen) and open it from there to get the banner as well as the sound.' : ''}`;
+}
+
+async function alertsOn() {
+  AL.prefs.on = true; AL.open = true; keepPrefs();
+  audio(); // made inside the tap, which is what lets it sound later
+  renderAlerts();
+  await askNotify(); worker(); keepAwake(AL.prefs.awake);
+  play(AL.prefs.sound);
+  renderAlerts();
+}
+$('#alerts-btn').addEventListener('click', () => { if (!AL.prefs.on) alertsOn(); else { AL.open = !AL.open; audio(); renderAlerts(); } });
+$('#alerts-done').addEventListener('click', () => { AL.open = false; renderAlerts(); });
+$('#alerts-off').addEventListener('click', () => { AL.prefs.on = false; AL.open = false; keepPrefs(); keepAwake(false); renderAlerts(); });
+$('#alerts-results').addEventListener('change', (e) => { AL.prefs.results = e.target.checked; keepPrefs(); });
+$('#alerts-awake').addEventListener('change', (e) => { AL.prefs.awake = e.target.checked; keepPrefs(); keepAwake(AL.prefs.on && AL.prefs.awake); });
+$('#alerts-win').addEventListener('click', () => play(WIN_SOUND));
+$('#alerts-loss').addEventListener('click', () => play(LOSS_SOUND));
+$('#alerts-test').addEventListener('click', async () => { if (!AL.prefs.on) await alertsOn(); else { play(AL.prefs.sound); buzz(); } notify('Test alert: Over 148.5 at −110', 'This is what a signal looks like. Tapping one opens the game.', `#/board/${today()}`, 'test'); renderAlerts(); });
+if (AL.prefs.on) {
+  // remembered from an earlier visit: the sound needs one touch on this page before the browser lets it play
+  const arm = () => { audio(); setTimeout(renderAlerts, 300); };
+  window.addEventListener('pointerdown', arm, { once: true }); window.addEventListener('keydown', arm, { once: true });
+  worker(); keepAwake(AL.prefs.awake);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && AL.prefs.on && AL.prefs.awake) keepAwake(true); });
+if (typeof navigator !== 'undefined' && navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && typeof e.data.go === 'string' && e.data.go.startsWith('#/')) go(e.data.go); });
+
+function render() { S.memo.clear(); renderVenue(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); try { checkAlerts(); renderAlerts(); } catch (e) { console.warn('alerts', e); } }
 
 async function refresh(force) {
   if (S.busy && !force) return;
@@ -1595,7 +1671,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=35')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=36')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();

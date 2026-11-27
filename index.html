@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inria-serif-300.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=35">
+<link rel="stylesheet" href="css/app.css?v=36">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -57,10 +57,20 @@
         <button type="button" class="key" id="today">Today</button>
       </div>
       <div class="tool-l">
+        <button type="button" class="key" id="alerts-btn" aria-pressed="false" aria-expanded="false" aria-controls="alerts-panel">Alerts off</button>
         <button type="button" class="key" id="only" aria-pressed="false" hidden>Signals only</button>
         <button type="button" class="key" data-share="board">Share</button>
       </div>
     </div>
+    <section class="alerts" id="alerts-panel" aria-label="Alerts in this browser" hidden>
+      <h2>Alerts in this browser</h2>
+      <p class="note" id="alerts-status" aria-live="polite"></p>
+      <div class="alerts-row"><span class="alerts-l">When a signal fires</span><span class="tabs" id="alerts-sounds" role="group" aria-label="Sound for a new signal"></span></div>
+      <div class="alerts-row"><label><input type="checkbox" id="alerts-results"> Cash register when a signal wins, sad trombone when it loses</label><span class="alerts-try"><button type="button" class="key" id="alerts-win">Hear the win</button><button type="button" class="key" id="alerts-loss">Hear the loss</button></span></div>
+      <div class="alerts-row" id="alerts-awake-row"><label><input type="checkbox" id="alerts-awake"> Keep the screen awake while this page is open</label></div>
+      <p class="alerts-actions"><button type="button" class="key is-primary" id="alerts-test">Send a test alert</button><button type="button" class="key" id="alerts-done">Done</button><button type="button" class="key" id="alerts-off">Turn alerts off</button></p>
+      <p class="note" id="alerts-phone"></p>
+    </section>
 
     <aside class="primer" id="primer" aria-label="How to read this site" hidden>
       <div class="primer-rows">
@@ -433,7 +443,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=35"></script>
+<script type="module" src="js/app.js?v=36"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {
