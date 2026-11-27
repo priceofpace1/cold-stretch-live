@@ -258,8 +258,8 @@ export const fmt = { f1, signed };
  * sides so a line that crosses it reads at a glance; the dot is where the average stands now, and an upright line marks
  * the minute a signal was logged. Colour comes from the row.
  */
-export function sparkline(points, { threshold = 2, from = 0, to = 40, w = 124, ht = 30, label = '', marks = [] } = {}) {
-  const span = threshold * 1.6, x = (t) => 1 + ((Math.min(to, Math.max(from, t)) - from) / (to - from)) * (w - 5), y = (v) => ht / 2 - (Math.max(-span, Math.min(span, v)) / span) * (ht / 2 - 2);
+export function sparkline(points, { threshold = 2, from = 0, to = 40, w = 150, ht = 34, label = '', marks = [] } = {}) {
+  const span = threshold * 1.45, x = (t) => 1 + ((Math.min(to, Math.max(from, t)) - from) / (to - from)) * (w - 5), cl = (v) => Math.max(-span, Math.min(span, v)), y = (v) => ht / 2 - (cl(v) / span) * (ht / 2 - 2);
   const svg = d3.create('svg').attr('viewBox', `0 0 ${w} ${ht}`).attr('class', 'spark').attr('role', 'img').attr('aria-label', label);
   svg.append('line').attr('class', 'sp-0').attr('x1', 0).attr('x2', w).attr('y1', y(0)).attr('y2', y(0));
   for (const v of [threshold, -threshold]) svg.append('line').attr('class', 'sp-t').attr('x1', 0).attr('x2', w).attr('y1', y(v)).attr('y2', y(v));
@@ -269,9 +269,14 @@ export function sparkline(points, { threshold = 2, from = 0, to = 40, w = 124, h
     const parts = []; let cur = [];
     for (const p of points) { if (cur.length && p.t - cur[cur.length - 1].t > 3) { parts.push(cur); cur = []; } cur.push(p); }
     parts.push(cur);
-    for (const part of parts) svg.append('path').attr('class', 'sp-l').attr('d', d3.line().x((p) => x(p.t)).y((p) => y(p.v))(part));
+    for (const part of parts) {
+      // where the average is past the mark the space between them is filled, so time spent out there shows as weight
+      svg.append('path').attr('class', 'sp-a').attr('d', d3.area().x((p) => x(p.t)).y0(y(threshold)).y1((p) => y(Math.max(threshold, p.v)))(part));
+      svg.append('path').attr('class', 'sp-a').attr('d', d3.area().x((p) => x(p.t)).y0(y(-threshold)).y1((p) => y(Math.min(-threshold, p.v)))(part));
+      svg.append('path').attr('class', 'sp-l').attr('d', d3.line().x((p) => x(p.t)).y((p) => y(p.v))(part));
+    }
     const end = points[points.length - 1];
-    svg.append('circle').attr('class', 'sp-e').attr('cx', x(end.t)).attr('cy', y(end.v)).attr('r', 2.6);
+    svg.append('circle').attr('class', 'sp-e').attr('cx', x(end.t)).attr('cy', y(end.v)).attr('r', 2.8);
   }
   return svg.node();
 }

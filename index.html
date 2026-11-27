@@ -23,7 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Price of Pace">
 <link rel="preload" href="fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inria-serif-300.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/app.css?v=34">
+<link rel="stylesheet" href="css/app.css?v=35">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -75,6 +75,7 @@
       <div class="lead-say">
         <h1 class="headline" id="lead-head">Loading the slate.</h1>
         <p class="standfirst" id="lead-sub"></p>
+        <a class="lead-nums" id="lead-nums" hidden></a>
         <p class="lead-links"><a class="key is-primary" id="alerts-link" target="_blank" rel="noopener" hidden>Get alerts</a><a href="#/record" id="record-link" hidden>The full record</a></p>
       </div>
       <section class="block" id="feed-block">
@@ -130,20 +131,26 @@
         </details>
         <p class="gloss"><span><i class="k-line"></i>Three-minute average</span><span><i class="k-thin"></i>Each reading</span><span><i class="k-band"></i>Within 2 deviations: no trade</span><span><i class="k-low"></i>Book low: over side</span><span><i class="k-high"></i>Book high: under side</span><span><i class="k-off"></i>Lopsided game: signals off</span></p>
       </div>
-      <p class="note" id="table-key" hidden><span class="q"></span>live quote&emsp;<span class="q d"></span>quote more than 45 seconds old&emsp;<span class="key-wide">Sorted by closeness to a signal. Trend: the three-minute average of fair minus sportsbook since the tip, in deviations, with the rule’s mark dotted on both sides. Upright line: a signal logged. Dot: where it stands now. Bar: its range.</span><span class="key-narrow">Sorted by closeness to a signal. Each line is the three-minute average of fair minus sportsbook since the tip; the dotted lines are the rule’s mark.</span></p>
+      <p class="note" id="table-key" hidden><span class="q"></span>live quote&emsp;<span class="q d"></span>quote more than 45 seconds old&emsp;<span class="key-wide">Sorted by closeness to a signal; a column heading sorts by that column. Trend: the three-minute average of fair minus sportsbook since the tip, in deviations, with the rule’s mark dotted on both sides. Upright line: a signal logged. Dot: where it stands now. Bar: its range.</span><span class="key-narrow">Sorted by closeness to a signal. Each line is the gap since the tip; the dotted lines are the rule’s mark.</span></p>
       <div class="wall" id="wall" hidden></div>
       <p><button type="button" class="key" id="more-games" hidden></button></p>
       <div class="panel stand" id="stand" hidden>
-        <div class="stand-head" aria-hidden="true">
-          <span>Game</span><span>Clock</span><span>Trend since tip</span>
-          <span class="axis"><span class="z-l">Book high, under side</span><span class="z-r">Book low, over side</span><i style="left:0%">−4</i><i style="left:25%">−2</i><i style="left:50%">0</i><i style="left:75%">+2</i><i style="left:100%">+4</i></span>
-          <span class="r">Sportsbook</span><span class="r">Fair</span><span class="r">Gap</span><span class="r">Dev.</span><span class="r">Held</span><span>Standing</span>
+        <div class="stand-head" id="stand-head">
+          <button type="button" class="th" data-sort="game">Game</button><button type="button" class="th" data-sort="clock">Clock</button><span>Trend since tip</span>
+          <span class="axis" aria-hidden="true"><span class="z-l">Under side</span><span class="z-r">Over side</span><i style="left:0%">−4</i><i style="left:25%">−2</i><i style="left:50%">0</i><i style="left:75%">+2</i><i style="left:100%">+4</i></span>
+          <button type="button" class="th r" data-sort="book">Sportsbook</button><button type="button" class="th r" data-sort="fair">Fair</button><button type="button" class="th r" data-sort="gap">Gap</button><button type="button" class="th r" data-sort="dev">Dev.</button><button type="button" class="th r" data-sort="held">Held</button><button type="button" class="th" data-sort="near">Standing</button>
         </div>
         <div id="stand-rows"></div>
       </div>
       <p class="quiet small" id="board-unlined" hidden></p>
       <p class="vacant" id="board-empty">Loading the scoreboard.</p>
     </div>
+
+    <section class="block" id="next" hidden>
+      <h2 id="next-h">Up next</h2>
+      <div class="sched" id="next-rows"></div>
+      <p><button type="button" class="key" id="next-more" hidden></button></p>
+    </section>
 
     <figure class="block exhibit" id="equity-block" hidden>
       <h2>Every graded signal since <span id="eq-since">the record began</span>, in units at the quoted prices</h2>
@@ -168,11 +175,6 @@
         <h2>What three seasons say</h2>
         <p class="prose">In 16,086 games since 2022, a top-50 team six or more points behind pace at halftime had lost 9.5 points and got 0.6 back. From there it scored at 101.6% of its pregame pace, across 831 team-games.</p>
         <p class="prose">So a fair live total is the score plus a normal pace for the time left. There is an edge only when the book prices the cold to continue.</p>
-      </section>
-      <section id="next" hidden>
-        <h2>Up next</h2>
-        <div class="sched" id="next-rows"></div>
-        <p><button type="button" class="key" id="next-more" hidden></button></p>
       </section>
     </div>
 
@@ -431,7 +433,7 @@
 </footer>
 
 <script src="vendor/d3.v7.9.2.min.js"></script>
-<script type="module" src="js/app.js?v=34"></script>
+<script type="module" src="js/app.js?v=35"></script>
 <script>
   // If the app has not started after ten seconds, say so instead of sitting on "Loading".
   setTimeout(function () {

@@ -2,13 +2,13 @@
 // Every local file is requested with the same ?v= release number, so a browser or CDN can never pair one release's
 // page with another's scripts. Bump it everywhere on release; tests/release.test.mjs fails if the numbers disagree.
 
-import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=34';
-import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=34';
-import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=34';
-import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=34';
-import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=34';
-import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=34';
-import { cardModel, drawCard } from './card.js?v=34';
+import { createModel, RULES, RULE_HISTORY, clockLabel, isClockGlitch, gapStats, signalNow, lastedSec, recordOf } from './model.js?v=35';
+import { urls, getJSON, parseEvent, parseOdds, parseSummary } from './espn.js?v=35';
+import { rangePlot, histogram, trendPanel, gameChart, recordChart, sparkline, fmt } from './charts.js?v=35';
+import { SITE, dataBase, safeLink, safeMail, coinbaseOn } from './site.js?v=35';
+import { fetchTotals, fetchTitles, matchGame, priceLadder, bestOn, nearest, entryOf, quoteWords, fmtC } from './coinbase.js?v=35';
+import { boardWords, signalWords, agoWords, lastedWords, watchWords, betWords, ruleLine, RULE_BRIEF } from './words.js?v=35';
+import { cardModel, drawCard } from './card.js?v=35';
 
 const { f1, signed } = fmt;
 const $ = (s) => document.querySelector(s);
@@ -39,7 +39,7 @@ const timeLabel = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric
 const today = () => slateOf(Date.now());
 
 const S = {
-  view: 'board', date: today(), sel: null, market: 'total', only: false, filter: 'all', cursor: -1, eqKey: null, rec: { rule: 'all', range: 'all' },
+  view: 'board', date: today(), sel: null, market: 'total', only: false, filter: 'all', sort: { key: 'near', dir: -1 }, sparkW: 150, cursor: -1, eqKey: null, rec: { rule: 'all', range: 'all' },
   games: new Map(), recorded: new Map(), recordedAt: null, ledger: [], index: [],
   model: null, scoresAt: 0, error: null, polls: 0, busy: false, memo: new Map(), histKey: null, yardDay: null, ladder: [],
   mode: (() => { try { return localStorage.getItem('csl.mode') === 'trend' ? 'trend' : 'table'; } catch { return 'table'; } })(), // the table is the board; the charts are a second view of it
@@ -405,9 +405,32 @@ const clockOf = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60))
 /** Whether a signal in this game stands right now, which is what turns its row white on black. */
 const signalOn = (g) => g.state === 'in' && signalsOf(g).some((x) => x.market === 'total' && onNow(g, x));
 
+/**
+ * Where a game stands, as something to act on. Live: the signal if one stands; how long the gap has held against the
+ * two minutes it needs; or how far the average is from the mark. Finished: what the signal did, or how far out it got.
+ * `frac` is the share of the way there, for the bar under the words; null where no bar belongs.
+ */
+function standingOf(g, st, dev, on, path) {
+  const [text, cls] = word(g, st);
+  if (g.state === 'post') {
+    const sig = signalsOf(g).filter((x) => x.market === 'total' && !x.fault), last = sig[sig.length - 1];
+    if (last) return { text: `${last.side} ${f1(last.line)}, ${last.result === 'Pending' ? 'open' : last.result.toLowerCase()}${sig.length > 1 ? `, ${sig.length} signals` : ''}`, cls: 'is-called', frac: null };
+    const peak = path.reduce((m, p) => (Math.abs(p.avg) > Math.abs(m) ? p.avg : m), 0);
+    return { text: path.length ? `Peak ${signed(peak)}, no signal` : text, cls: '', frac: null };
+  }
+  if (on) { const sig = signalsOf(g).find((x) => x.market === 'total' && onNow(g, x)); return { text: `Signal: ${sig.side.toLowerCase()} ${f1(signalNow(sig, nowRow(g)).line)}`, cls: 'is-called', frac: 1 }; }
+  if (cls !== 'is-live' && !(st && st.best && st.best.weight === 3)) return { text, cls, frac: null }; // outside the window, or no line to measure
+  if (dev == null) return { text: 'Measuring', cls: 'is-live', frac: null };
+  const run = standRun(g, dev), side = dev > 0 ? 'over' : 'under', need = HOLD_SEC - HOLD_SLACK;
+  if (run && run.sec < need) return { text: `Past the mark, held ${clockOf(run.sec)} of ${clockOf(HOLD_SEC)}`, cls: 'is-live is-hot', frac: run.sec / HOLD_SEC };
+  if (run) return { text: `Past the mark ${clockOf(run.sec)}, ${side}`, cls: 'is-live is-hot', frac: 1 };
+  const short = Math.max(0, RULES.buyDev - Math.abs(dev));
+  return { text: `${short.toFixed(1)} from the mark, ${side}`, cls: `is-live${Math.abs(dev) >= RULES.leanDev ? ' is-hot' : ''}`, frac: Math.min(1, Math.abs(dev) / RULES.buyDev) };
+}
+
 function standRow(g, i) {
   const st = g.state === 'in' ? standing(g) : null, s = series(g), now = s[s.length - 1] || null;
-  const [text, cls] = word(g, st), on = signalOn(g), dev = devNow(g);
+  const on = signalOn(g), dev = devNow(g);
   const row = h('a', `stand-row${g.state === 'post' ? ' is-final' : ''}${on ? ' is-signal' : ''}${i === S.cursor ? ' is-cursor' : ''}`);
   row.href = gameHash(g.id, st && st.best ? st.best.key : 'total');
   row.dataset.id = g.id;
@@ -415,7 +438,7 @@ function standRow(g, i) {
   const path = s.filter((p) => p.avg != null), gaps = path.map((p) => p.avg);
   // The path of the three-minute average since the tip, beside where it stands now and the range it has covered.
   const spark = h('span', 'c-spark');
-  spark.append(sparkline(path.map((p) => ({ t: p.t, v: p.avg })), { threshold: RULES.buyDev, from: 0, to: Math.max(40, g.minute || 0), label: `${g.away.name} at ${g.home.name}: the three-minute average since the tip`, marks: signalsOf(g).filter((x) => x.market === 'total' && !x.fault).map((x) => x.minute) }));
+  spark.append(sparkline(path.map((p) => ({ t: p.t, v: p.avg })), { w: S.sparkW, threshold: RULES.buyDev, from: 0, to: Math.max(40, g.minute || 0), label: `${g.away.name} at ${g.home.name}: the three-minute average since the tip`, marks: signalsOf(g).filter((x) => x.market === 'total' && !x.fault).map((x) => x.minute) }));
   const plot = h('span', 'c-plot');
   plot.append(rangePlot({ gap: dev, lo: gaps.length ? Math.min(...gaps) : null, hi: gaps.length ? Math.max(...gaps) : null, signal: on, threshold: RULES.buyDev, span: 2 * RULES.buyDev, unit: ' deviations' }));
   const nums = h('span', 'c-nums');
@@ -424,7 +447,9 @@ function standRow(g, i) {
   // The square says how fresh the sportsbook's number is: filled for a live quote, open once it is more than 45 seconds old.
   if (g.state === 'in' && now) { const q = h('i', `q${g.live && Date.now() - g.live.at < QUOTE_LIVE_MS ? '' : ' d'}`); q.title = g.live && Date.now() - g.live.at < QUOTE_LIVE_MS ? 'Live quote' : 'Quote more than 45 seconds old'; book.prepend(q); }
   nums.append(book, num('Fair', now ? f1(now.fair) : '–', 'fair'), num('Gap', now ? signed(now.gap) : '–', 'gap'), num('Dev', dev != null ? signed(dev) : '–', 'dev'), num('Held', run ? clockOf(run.sec) : '–', 'held'));
-  row.append(game, h('span', 'c-clock', clockText(g)), spark, plot, nums, h('span', `c-status ${cls}`, text));
+  const where = standingOf(g, st, dev, on, path), status = h('span', `c-status ${where.cls}`, where.text);
+  if (where.frac != null) { const bar = h('i', 'prog'), fill = h('b'); fill.style.width = `${Math.round(100 * where.frac)}%`; bar.append(fill); status.append(bar); }
+  row.append(game, h('span', 'c-clock', clockText(g)), spark, plot, nums, status);
   return row;
 }
 const QUOTE_LIVE_MS = 45000;
@@ -448,7 +473,19 @@ function standGames() {
   return live.concat(done);
 }
 /** The board's rows under the filter in force: closest to a signal first. */
-const boardRows = () => standGames().filter(FILTERS[S.filter] || FILTERS.all);
+const SORTS = {
+  game: (g) => g.away.name.toLowerCase(), clock: (g) => (g.state === 'in' ? g.minute : null),
+  book: (g) => { const s = series(g); return s.length ? s[s.length - 1].book : null; }, fair: (g) => { const s = series(g); return s.length ? s[s.length - 1].fair : null; },
+  gap: (g) => { const s = series(g); return s.length ? s[s.length - 1].gap : null; }, dev: (g) => { const d = devNow(g); return d == null ? null : Math.abs(d); },
+  held: (g) => { const r = standRun(g, devNow(g)); return r ? r.sec : null; },
+};
+function boardRows() {
+  const rows = standGames().filter(FILTERS[S.filter] || FILTERS.all), val = SORTS[S.sort.key];
+  if (!val) return rows; // closest to a signal, which is the order they come in
+  const cmp = (a, b) => { const x = val(a), y = val(b); if (x == null || y == null) return (x == null) - (y == null); return (x < y ? -1 : x > y ? 1 : 0) * S.sort.dir; };
+  // live games stay above finished ones whatever the column, since only they can be acted on
+  return rows.filter((g) => g.state === 'in').sort(cmp).concat(rows.filter((g) => g.state !== 'in').sort(cmp));
+}
 
 function schedRow(g, right) {
   const b = h('button'); b.type = 'button';
@@ -475,6 +512,18 @@ function standout(all) {
   return { on, near: rest[0] || null, close: rest.filter((x) => x.dev >= RULES.leanDev) };
 }
 
+/** Under the headline: the numbers of the game it names, as one link to that game. Nothing when no live game leads. */
+function renderLeadNums(out) {
+  const lead = out.on[0] || (out.near && out.near.dev >= 1 ? out.near : null), a = $('#lead-nums'), g = lead && S.games.get(lead.id);
+  a.hidden = !g;
+  if (!g) return;
+  const s = series(g), now = s[s.length - 1], dev = devNow(g), run = standRun(g, dev);
+  const cell = (label, value) => { const c = h('span', 'ln'); c.append(h('b', '', value), h('small', '', label)); return c; };
+  a.href = gameHash(g.id, 'total');
+  a.replaceChildren(cell('Sportsbook now', now ? f1(now.book) : '–'), cell('Fair', now ? f1(now.fair) : '–'), cell('Gap, points', now ? signed(now.gap) : '–'), cell('Deviations', dev == null ? '–' : signed(dev)),
+    cell(run ? 'Held past the mark' : 'From the mark', run ? clockOf(run.sec) : dev == null ? '–' : Math.max(0, RULES.buyDev - Math.abs(dev)).toFixed(1)), cell(clockText(g), `${g.away.pts}–${g.home.pts}`), h('span', 'ln-go', 'Open the game'));
+}
+
 /**
  * The first two figures of the strip are the ones to act on. With games live: how many signals stand, and how many
  * games are close to one, each naming its leading game and opening it. Before the first tip: when it is. On a finished
@@ -485,6 +534,7 @@ function renderAction(all, out, ahead, sig) {
   const set = (a, label, value, text, href) => { a.textContent = value; a.setAttribute('href', href); label.textContent = text; };
   const more = (n) => (n > 1 ? `, and ${n - 1} more` : ''), board = `#/board/${S.date}`;
   $('#fig-now-cell').classList.toggle('is-on', live && out.on.length > 0);
+  $('#fig-now-cell').classList.toggle('is-time', !live && ahead.length > 0 && (isToday() || !all.some((g) => g.state === 'post')));
   $('#fig-close-cell').classList.toggle('is-near', live && out.close.length > 0);
   if (live) {
     set(now, $('#fig-now-l'), String(out.on.length), out.on.length ? `${out.on.length === 1 ? 'Signal' : 'Signals'} now: ${out.on[0].call}, ${out.on[0].name}${more(out.on.length)}` : 'Signals now', out.on.length ? gameHash(out.on[0].id, 'total') : board);
@@ -516,6 +566,7 @@ function renderLead(all) {
   // The record leads the page: what has been logged and graded, in the three figures a newcomer would ask for first.
   const rec = recordOf(S.ledger, RULES.liveSince), graded = rec.won + rec.lost > 0;
   const out = standout(all);
+  renderLeadNums(out);
   $('#proof').hidden = !graded && !all.length; $('#record-link').hidden = !graded;
   renderAction(all, out, ahead, sig);
   if (graded) {
@@ -830,6 +881,8 @@ function renderBoard() {
   for (const b of document.querySelectorAll('#filter button')) { const k = b.dataset.filter; b.setAttribute('aria-pressed', String(k === S.filter)); b.textContent = `${k === 'all' ? 'All' : k === 'eligible' ? 'Eligible' : 'Signals'} ${every.filter(FILTERS[k]).length}`; }
   $('#filter').hidden = !every.length;
   $('#board-h').textContent = isToday() ? 'Live board' : 'The slate, game by game';
+  for (const b of document.querySelectorAll('#stand-head .th')) { const k = b.dataset.sort; if (k === S.sort.key && k !== 'near') b.setAttribute('aria-sort', S.sort.dir > 0 ? 'ascending' : 'descending'); else b.removeAttribute('aria-sort'); b.classList.toggle('is-sort', k === S.sort.key); }
+
   const gaps = renderLead(all);
   const trend = S.mode === 'trend';
   for (const b of document.querySelectorAll('#mode button')) b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode));
@@ -849,6 +902,8 @@ function renderBoard() {
     for (const c of cards) c[1]();
     $('#stand-rows').replaceChildren();
   } else {
+    const trendHead = document.querySelector('#stand-head > span'); // the row trend is drawn to the width its column has, once the table is showing
+    S.sparkW = trendHead && trendHead.clientWidth > 60 ? trendHead.clientWidth : window.innerWidth <= 860 ? 104 : 150;
     $('#stand-rows').replaceChildren(...rows.map(standRow));
     $('#wall').replaceChildren();
   }
@@ -860,7 +915,9 @@ function renderBoard() {
   empty.textContent = !S.scoresAt ? 'Loading the scoreboard.' : every.length ? (S.filter === 'signals' ? 'No signal has been logged on this slate. An empty list is a valid result.' : 'No game is inside the signal window right now.') : nLive ? 'Games are in progress, but none has a sportsbook line yet.' : isToday() ? 'No games in progress. The board fills in at tip-off.' : 'No lines were recorded on this date.';
   const next = all.filter((g) => g.state === 'pre').sort((a, b) => new Date(a.start) - new Date(b.start));
   // While games are live the schedule is a reference, so it shows the next few and folds the rest. Before the first tip it is the page.
-  const nextShown = S.allNext || !nLive ? next : next.slice(0, NEXT_SHOWN);
+  const nextShown = S.allNext ? next : next.slice(0, nLive ? NEXT_SHOWN : window.innerWidth <= 760 ? 8 : 18);
+  $('#board-h').closest('.block').hidden = !every.length && !nLive && next.length > 0; // before the first tip an empty board says nothing the schedule does not
+  $('#next-h').textContent = nLive ? 'Up next' : `Up next: ${next.length} still to tip`;
   $('#next-rows').replaceChildren(...nextShown.map((g) => schedRow(g, g.pre ? `${g.pre[0]}, ${g.pre[1] <= 0 ? g.home.abbr : g.away.abbr} by ${Math.abs(g.pre[1])}` : 'No line')));
   $('#next-more').hidden = nextShown.length === next.length;
   $('#next-more').textContent = `Show all ${next.length} games still to tip`;
@@ -1478,8 +1535,8 @@ function renderPulse() {
 }
 /** The browser tab carries the number of signals that can be bet now, so a tab left in the background still says when one fires. */
 function renderTitle() {
-  const open = isToday() ? [...S.games.values()].reduce((n, g) => n + signalsOf(g).filter((s) => onNow(g, s)).length, 0) : 0;
-  const title = open ? `(${open}) ${SITE.name}` : SITE.name;
+  const on = standout([...S.games.values()]).on;
+  const title = on.length ? `(${on.length}) ${on[0].call}, ${on[0].name} – ${SITE.name}` : SITE.name;
   if (document.title !== title) document.title = title;
 }
 function render() { S.memo.clear(); renderVenue(); renderPulse(); if (S.view === 'board') renderBoard(); if (S.view === 'game') renderGame(); if (S.view === 'record') renderRecord(); if (S.view === 'about') renderAbout(); cbAlert(); renderTitle(); }
@@ -1513,6 +1570,7 @@ $('#prev').addEventListener('click', () => go(boardHash(shiftDay(S.date, -1))));
 $('#next-day').addEventListener('click', () => go(boardHash(shiftDay(S.date, 1))));
 $('#today').addEventListener('click', () => go(boardHash(today())));
 $('#only').addEventListener('click', () => { S.only = !S.only; renderBoard(); });
+for (const b of document.querySelectorAll('#stand-head .th')) b.addEventListener('click', () => { const k = b.dataset.sort; S.sort = k === 'near' ? { key: 'near', dir: -1 } : S.sort.key === k ? { key: k, dir: -S.sort.dir } : { key: k, dir: k === 'game' ? 1 : -1 }; S.cursor = -1; renderBoard(); });
 for (const b of document.querySelectorAll('#filter button')) b.addEventListener('click', () => { S.filter = b.dataset.filter; S.cursor = -1; renderBoard(); });
 for (const b of document.querySelectorAll('#mode button')) b.addEventListener('click', () => { S.mode = b.dataset.mode; try { localStorage.setItem('csl.mode', S.mode); } catch { /* the choice just will not persist */ } S.memo.clear(); renderBoard(); });
 $('#cb-alerts').addEventListener('click', toggleAlerts);
@@ -1537,7 +1595,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 (async () => {
-  try { S.model = createModel(await getJSON('model.json?v=34')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
+  try { S.model = createModel(await getJSON('model.json?v=35')); } catch { $('#pulse').textContent = 'Could not load the model file.'; return; }
   window.cslBooted = true;
   setupSite();
   await applyRoute();
